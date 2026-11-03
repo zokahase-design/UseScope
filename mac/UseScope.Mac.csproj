@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>UseScope</AssemblyName>
+    <Version>2.1.0</Version>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Native" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Skia" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Headless" Version="11.3.22" />
+    <Compile Include="../source/Data.cs" Link="Shared/Data.cs" />
+    <Compile Include="../source/Sources.cs" Link="Shared/Sources.cs" />
+    <Compile Include="../source/Monitor.cs" Link="Shared/Monitor.cs" />
+    <Compile Include="../source/Providers.cs" Link="Shared/Providers.cs" />
+    <Compile Include="../source/ApiAccountSource.cs" Link="Shared/ApiAccountSource.cs" />
+    <Compile Include="../source/ApiChecks.cs" Link="Shared/ApiChecks.cs" />
+    <None Include="../source/Assets/*" Link="Assets/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../source/UseScope.ico" Link="UseScope.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,33 @@
+name: Fehler melden
+description: Ein nachvollziehbarer Fehler in UseScope
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: "Bitte keine E-Mails, Tokens, Kontoprofile oder unbereinigten Screenshots posten."
+  - type: input
+    id: version
+    attributes:
+      label: UseScope-Version
+      placeholder: "2.0.2"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows-Version und Skalierung
+      placeholder: "Windows 11, 125 %"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Schritte zum Nachstellen
+      description: "Was wurde getan, was wurde erwartet und was geschah tatsächlich?"
+    validations:
+      required: true
+  - type: textarea
+    id: provider
+    attributes:
+      label: Anbieter und zusätzliche Angaben
+      description: "Nur Anbietername und CLI-Version, keine Konto- oder Zugangsdaten."

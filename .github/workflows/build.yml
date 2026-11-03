@@ -1,0 +1,43 @@
+name: Windows build and offline verification
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.401
+      - name: Build and verify without provider accounts
+        shell: pwsh
+        run: ./tools/build.ps1
+      - name: Assemble Windows ZIP with licenses
+        shell: pwsh
+        run: ./tools/package.ps1
+      - name: Test relocation, launcher and archive contents
+        shell: pwsh
+        run: ./tools/test-package.ps1
+      - name: Upload reviewable build artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: UseScope-windows-x64
+          path: |
+            dist/*.zip
+            dist/*.sha256
+            artifacts/verification/
+            artifacts/source-audit.json
+            artifacts/package-audit.json
+            artifacts/package-test.json
+          if-no-files-found: error
+          retention-days: 14

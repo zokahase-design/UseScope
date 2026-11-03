@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>UseScope</AssemblyName>
+    <RootNamespace>UseScope.Desktop</RootNamespace>
+    <Version>2.1.0</Version>
+    <Product>UseScope</Product>
+    <Description>Persönliche Übersicht für KI-Nutzungslimits</Description>
+    <ApplicationIcon>UseScope.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Update="Assets\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
