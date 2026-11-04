@@ -33,20 +33,30 @@ internal static class Program
     }
     private static async Task<int> Probe(string path)
     {
+        if (System.Diagnostics.Process.GetProcessesByName("UseScope").Any(process => { using (process) return process.Id != Environment.ProcessId; }))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+            File.WriteAllText(path, "{\"Passed\":false,\"Deferred\":\"UseScopeIsRunning\"}"); return 3;
+        }
         var preferences = new Preferences(Path.Combine(Preferences.DataDirectory, "settings.json"));
-        var outcomes = new List<object>();
+        var outcomes = new System.Collections.Concurrent.ConcurrentBag<object>();
         var failed = false;
-        foreach (var identity in preferences.Identities.Where(identity => identity.Enabled))
+        var accounts = preferences.Identities.Where(identity => identity.Enabled).ToArray();
+        using var monitor = new AccountMonitor();
+        monitor.Changed += result => {
+            var index = Array.FindIndex(accounts, identity => identity.Key == result.Identity);
+            outcomes.Add(new { Index = index + 1, Vendor = accounts[index].Vendor, Ok = !result.Failed, Windows = result.Periods.Count,
+                BalanceAvailable = result.Balance is not null, HasObservation = result.Observed is not null, TokensAvailable = result.Tokens is not null,
+                HttpStatus = result.HttpStatus, Error = result.Failed ? result.Status : null, TokenNote = result.TokenNote, NextAttemptUtc = result.NextAttempt });
+            failed |= result.Failed;
+        };
+        foreach (var identity in accounts)
         {
             if (Providers.Get(identity.Vendor).Connection == ConnectionKind.Portal)
             { outcomes.Add(new { Vendor = identity.Vendor, Skipped = true, Reason = "PortalOnly" }); continue; }
-            using IAccountSource source = identity.Vendor switch { "codex" => new CodexSource(), "claude" => new ClaudeSource(), "nous" => new NousSource(), _ => new ApiAccountSource() };
-            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(50));
             try
             {
-                var result = await source.Query(identity, cancellation.Token);
-                outcomes.Add(new { Vendor = identity.Vendor, Ok = !result.Failed, Windows = result.Periods.Count, BalanceAvailable = result.Balance is not null, HasObservation = result.Observed is not null });
-                failed |= result.Failed;
+                await monitor.Refresh([identity], true);
             }
             catch (Exception exception)
             {

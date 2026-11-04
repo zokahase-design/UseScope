@@ -3,14 +3,14 @@
 ## .NET
 
 Der Windows-Download enthält Microsoft.NETCore.App.Runtime.win-x64 und
-Microsoft.WindowsDesktop.App.Runtime.win-x64. Diese Komponenten werden unter
+Microsoft.WindowsDesktop.App.Runtime.win-x64 sowie für den optionalen lokalen API-Zähler Microsoft.AspNetCore.App.Runtime.win-x64. Diese Komponenten werden unter
 ihren eigenen Bedingungen mitgeliefert. Der Paketbau übernimmt die Lizenztexte
 aus den tatsächlich verwendeten NuGet-Paketen in `docs/licenses/` des Downloads.
 Die zugehörigen Drittanbieterhinweise bleiben ebenfalls enthalten.
 
 ## Mac-Oberfläche
 
-Die macOS-Version verwendet zusätzlich Avalonia, MicroCom.Runtime, SkiaSharp und
+Beide Plattformen verwenden den ASP.NET-Core-Laufzeitbestand für den lokalen API-Zähler. Die macOS-Version verwendet zusätzlich Avalonia, MicroCom.Runtime, SkiaSharp und
 HarfBuzzSharp samt nativen Bestandteilen. Deren Lizenztexte stehen unter
 `docs/licenses/` im Repository und werden zusammen mit den aus den verwendeten
 NuGet-Paketen ermittelten Hinweisen in das Mac-ZIP aufgenommen. Das Inventar im

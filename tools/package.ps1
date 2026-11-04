@@ -21,6 +21,7 @@ Copy-Item -LiteralPath (Join-Path $repository 'docs\QUICKSTART.md') -Destination
 Copy-Item -LiteralPath (Join-Path $repository 'docs\PRIVACY.md') -Destination $docs
 Copy-Item -LiteralPath (Join-Path $repository 'docs\PROVIDERS.md') -Destination $docs
 Copy-Item -LiteralPath (Join-Path $repository 'docs\BRAND_ASSETS.md') -Destination $docs
+foreach ($document in @('API_METER.md', 'PROVIDER_MATRIX.md', 'TOKENS.md', 'provider-catalog.json')) { Copy-Item -LiteralPath (Join-Path $repository ('docs\' + $document)) -Destination $docs }
 
 $dependencies = Get-Content -LiteralPath (Join-Path $publish 'UseScope.deps.json') -Raw | ConvertFrom-Json
 $assets = Get-Content -LiteralPath (Join-Path $repository 'source\obj\project.assets.json') -Raw | ConvertFrom-Json
@@ -28,7 +29,8 @@ $packageRoots = @($assets.packageFolders.PSObject.Properties.Name)
 $componentList = [Collections.Generic.List[object]]::new()
 foreach ($definition in @(
     @{ Prefix = 'runtimepack.Microsoft.NETCore.App.Runtime.win-x64/'; Package = 'microsoft.netcore.app.runtime.win-x64'; Label = 'DotNet'; License = 'LICENSE.TXT' },
-    @{ Prefix = 'runtimepack.Microsoft.WindowsDesktop.App.Runtime.win-x64/'; Package = 'microsoft.windowsdesktop.app.runtime.win-x64'; Label = 'WindowsDesktop'; License = 'LICENSE' }
+    @{ Prefix = 'runtimepack.Microsoft.WindowsDesktop.App.Runtime.win-x64/'; Package = 'microsoft.windowsdesktop.app.runtime.win-x64'; Label = 'WindowsDesktop'; License = 'LICENSE' },
+    @{ Prefix = 'runtimepack.Microsoft.AspNetCore.App.Runtime.win-x64/'; Package = 'microsoft.aspnetcore.app.runtime.win-x64'; Label = 'AspNetCore'; License = 'LICENSE.txt' }
 )) {
     $entry = @($dependencies.libraries.PSObject.Properties.Name | Where-Object { $_.StartsWith($definition.Prefix, [StringComparison]::Ordinal) })
     if ($entry.Count -ne 1) { throw "Laufzeitversion nicht eindeutig: $($definition.Package)" }
@@ -47,6 +49,8 @@ foreach ($definition in @(
 [ordered]@{ Application = 'UseScope'; Version = $build.Version; SDK = $build.SDK; OfflineChecks = $build.OfflineChecks; Components = @($componentList.ToArray()) } |
     ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $docs 'build-info.json') -Encoding utf8
 & (Join-Path $PSScriptRoot 'audit.ps1') -Root $stage -Report (Join-Path $artifacts 'package-audit.json')
+& python (Join-Path $PSScriptRoot 'privacy-audit.py') --root $stage --report (Join-Path $artifacts 'package-privacy.json')
+if ($LASTEXITCODE -ne 0) { throw 'Datenschutzprüfung des Windows-Pakets fehlgeschlagen.' }
 
 $files = @(Get-ChildItem -LiteralPath $stage -Recurse -File | ForEach-Object {
     [ordered]@{ Path = [IO.Path]::GetRelativePath($stage, $_.FullName).Replace('\', '/'); SHA256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash; Bytes = $_.Length }

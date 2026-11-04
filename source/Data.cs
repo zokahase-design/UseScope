@@ -5,17 +5,66 @@ using System.Text.Json.Nodes;
 namespace UseScope.Desktop;
 
 internal sealed record Period(string Caption, double Percent, DateTimeOffset? Reset);
+internal sealed record TokenUsage(long Total, DateTimeOffset From, DateTimeOffset To, string Scope,
+    long? Input = null, long? Output = null, bool Partial = false, bool Lifetime = false);
 internal sealed record Reading(string Identity, IReadOnlyList<Period> Periods, string? Balance,
-    string Status, DateTimeOffset? Observed, bool Failed = false, long Epoch = 0, string? Detail = null, bool DetailContainsBalance = false);
+    string Status, DateTimeOffset? Observed, bool Failed = false, long Epoch = 0, string? Detail = null, bool DetailContainsBalance = false, TokenUsage? Tokens = null,
+    string? TokenNote = null, DateTimeOffset? NextAttempt = null, int? HttpStatus = null, string? AccountBinding = null, TokenReport? TokenReport = null);
 internal sealed record Identity(string Key, string Vendor, string Title, string Profile,
-    bool Enabled, bool ShowBalance, int Interval, bool Secondary, bool AutoRenew = true);
+    bool Enabled, bool ShowBalance, int Interval, bool Secondary, bool AutoRenew = true, JsonObject? ConnectionOptions = null);
 
 internal static class ReadingPresentation
 {
-    internal static string Detail(Identity account, Reading? reading) => !account.ShowBalance && reading?.DetailContainsBalance == true
-        ? "Beträge ausgeblendet. " + Providers.Get(account.Vendor).Help : reading?.Detail ?? reading?.Status ?? "Wird abgefragt …";
+    internal static double QuotaPercent(Period period, bool remaining)
+    {
+        var used = Math.Clamp(period.Percent, 0, 100);
+        return remaining ? 100 - used : used;
+    }
+    internal static string QuotaMode(bool remaining) => remaining ? "Verfügbares Kontingent" : "Verbrauchtes Kontingent";
+    internal static string TokenLabel(Identity account, Reading? reading) => account.Vendor == "claude" && reading?.Tokens is null ? "Tokenquelle…" : Tokens(reading);
+    internal static string Tokens(Reading? reading)
+    {
+        if (reading?.Tokens is not { Total: >= 0 } value || value.To < value.From) return "Token n. v.";
+        decimal count = value.Total; var scale = 0;
+        string[] units = ["", "k", "M", "Mrd", "Bio", "Brd"];
+        while (count >= 1000 && scale < units.Length - 1) { count /= 1000; scale++; }
+        if (value.Partial && scale > 0) count = Math.Truncate(count * 10) / 10;
+        if (!value.Partial && Math.Round(count, 1) >= 1000 && scale < units.Length - 1) { count /= 1000; scale++; }
+        return (value.Partial ? "≥ " : "") + count.ToString(scale == 0 ? "0" : "0.#", CultureInfo.GetCultureInfo("de-DE")) + units[scale] + " Token";
+    }
+    internal static string TokenDetail(Reading? reading)
+    {
+        if (reading?.Tokens is not { Total: >= 0 } value || value.To < value.From)
+            return reading?.TokenNote ?? "Tokenverbrauch nicht verfügbar. Diese Verbindung meldet keine Tokenzahl für das Konto; Limit-Prozente werden nicht in Token umgerechnet.";
+        var text = value.Total.ToString("N0", CultureInfo.GetCultureInfo("de-DE")) + " Token\n"
+            + (value.Lifetime ? "Gesamter gemeldeter Zeitraum · Stand " : value.From.ToUniversalTime().ToString("dd.MM.yyyy HH:mm") + " bis ")
+            + value.To.ToUniversalTime().ToString("dd.MM.yyyy HH:mm") + " UTC\n" + value.Scope;
+        if (value.Input is long input) text += "\nInput: " + input.ToString("N0", CultureInfo.GetCultureInfo("de-DE"));
+        if (value.Output is long output) text += " · Output: " + output.ToString("N0", CultureInfo.GetCultureInfo("de-DE"));
+        if (value.Partial) text += "\nUnvollständig: mindestens dieser gemeldete Verbrauch; weitere Token können fehlen.";
+        if (reading.Failed) text += "\nLetzter bekannter Stand; aktuelle Abfrage fehlgeschlagen.";
+        if (!string.IsNullOrEmpty(reading.TokenNote)) text += "\n" + reading.TokenNote;
+        return text;
+    }
+    internal static string Balance(Identity account, Reading? reading)
+    {
+        var value = reading?.Balance?.Trim();
+        if (string.IsNullOrWhiteSpace(value) || value is "-" or "—" or "–") return reading is null ? "Wird abgefragt …" : "Nicht gemeldet";
+        if (value.StartsWith("Credits ", StringComparison.Ordinal)) return value[8..] + " Credits";
+        return account.Vendor == "claude" ? "Guthaben " + value : value;
+    }
+    internal static string Countdown(DateTimeOffset? reset, DateTimeOffset? now = null)
+    {
+        if (reset is null) return "Unbekannt";
+        var remaining = reset.Value - (now ?? DateTimeOffset.Now);
+        if (remaining <= TimeSpan.Zero) return "0h 0min";
+        return (remaining.Days > 0 ? $"{remaining.Days}d " : "") + $"{remaining.Hours}h {remaining.Minutes}min";
+    }
+    internal static string Detail(Identity account, Reading? reading) => (!account.ShowBalance && reading?.DetailContainsBalance == true
+        ? "Beträge ausgeblendet. " + Providers.Get(account.Vendor).Help : reading?.Detail ?? reading?.Status ?? "Wird abgefragt …") + "\n\n" + TokenDetail(reading)
+        + (reading?.Failed == true && reading.NextAttempt is DateTimeOffset next ? "\nNächste automatische Abfrage: " + next.ToLocalTime().ToString("dd.MM. HH:mm:ss") : "");
     internal static string Summary(Identity account, Reading? reading) => reading?.Failed == true ? reading.Status
-        : Providers.Get(account.Vendor).Connection == ConnectionKind.Portal ? "Portal · keine automatische Messung"
+        : !MeterStorage.Enabled(account) && Providers.Get(account.Vendor).Connection == ConnectionKind.Portal ? "Portal · keine automatische Messung"
         : Detail(account, reading).Split('\n')[0];
 }
 
@@ -26,6 +75,9 @@ internal static class JsonData
     {
         if (node is not JsonValue value) return null;
         if (value.TryGetValue<double>(out var number) && double.IsFinite(number)) return number;
+        if (value.TryGetValue<long>(out var integer)) return integer;
+        if (value.TryGetValue<int>(out var small)) return small;
+        if (value.TryGetValue<decimal>(out var exact)) return (double)exact;
         return double.TryParse(Text(node), NumberStyles.Float, CultureInfo.InvariantCulture, out number) && double.IsFinite(number) ? number : null;
     }
     internal static bool Flag(JsonNode? node, bool fallback = false) => node is JsonValue value && value.TryGetValue<bool>(out var flag) ? flag : fallback;
@@ -61,6 +113,7 @@ internal sealed class Preferences
             ?? throw new InvalidDataException("Einstellungen haben ein ungültiges Format.") : new JsonObject();
     }
     internal string Theme { get => JsonData.Text(_document["ColorTheme"]) == "Dark" ? "Dark" : "Hell"; set => _document["ColorTheme"] = value == "Dark" ? "Dark" : "Hell"; }
+    internal bool ShowRemainingQuota { get => JsonData.Flag(_document["ShowRemainingQuota"]); set => _document["ShowRemainingQuota"] = value; }
     internal bool Pinned { get => JsonData.Flag(_document["AlwaysOnTop"], true); set { _document["AlwaysOnTop"] = value; _document["IsPinned"] = value; } }
     internal string Position { get => JsonData.Text(_document["PopupPosition"]) ?? "BottomRight"; set => _document["PopupPosition"] = value; }
     internal string Shortcut => JsonData.Text(_document["Hotkey"]) ?? "Ctrl+Alt+U";
@@ -83,7 +136,7 @@ internal sealed class Preferences
                 return new Identity(key, vendor, JsonData.Text(account["DisplayName"]) ?? key, profile,
                     JsonData.Flag(options?["Enabled"], true), JsonData.Flag(options?["ShowCredits"], true),
                     Math.Clamp((int)(JsonData.Number(options?["RefreshSeconds"]) ?? 60), 60, 3600),
-                    JsonData.Flag(options?["ShowSecondaryRows"]), JsonData.Flag(options?["AutoRenewSession"], true));
+                    JsonData.Flag(options?["ShowSecondaryRows"]), JsonData.Flag(options?["AutoRenewSession"], true), options?["ConnectionOptions"]?.DeepClone() as JsonObject);
             }).Where(item => item.Key.Length > 0 && item.Key.IndexOfAny(Path.GetInvalidFileNameChars()) < 0
                 && item.Key is not "." and not ".." && Providers.Known(item.Vendor) && seen.Add(item.Key))
               .OrderBy(item => order.IndexOf(item.Key) is var rank && rank >= 0 ? rank : int.MaxValue).ToList();
@@ -98,6 +151,13 @@ internal sealed class Preferences
         options["ShowCredits"] = show;
         Save();
     }
+    internal void SetConnection(Identity identity, JsonObject values)
+    {
+        var providers = _document["Providers"] as JsonObject ?? throw new InvalidDataException();
+        var options = providers[identity.Key] as JsonObject ?? throw new InvalidDataException();
+        var old = options["ConnectionOptions"]?.DeepClone(); options["ConnectionOptions"] = values.DeepClone();
+        try { Save(); } catch { options["ConnectionOptions"] = old; throw; }
+    }
     internal Identity Add(string vendor, string title)
     {
         if (!Providers.Known(vendor)) throw new ArgumentException("Unbekannter Anbieter.");
@@ -109,6 +169,7 @@ internal sealed class Preferences
         list.Add(new JsonObject { ["Id"] = key, ["Provider"] = vendor, ["DisplayName"] = title });
         var directory = Path.Combine(DataDirectory, "profiles", key);
         providers[key] = new JsonObject { ["ProfileDirectory"] = directory, ["Enabled"] = true, ["ShowCredits"] = true, ["RefreshSeconds"] = 60 };
+        if (Providers.Get(vendor).Connection == ConnectionKind.LocalMeter) providers[key]!["ConnectionOptions"] = MeterSetup.Options();
         Save();
         return Identities.Single(item => item.Key == key);
     }

@@ -7,16 +7,18 @@ namespace UseScope.Desktop;
 internal sealed class Dashboard : Form
 {
     private readonly Preferences _preferences;
-    private readonly ToolTip _tips = new();
     private readonly Dictionary<(string, string), Image?> _images = new();
     private IReadOnlyDictionary<string, Reading> _readings = new Dictionary<string, Reading>();
     private readonly List<(string Key, Rectangle Bounds)> _sections = [];
-    private bool _menuActive, _arranging;
+    private bool _menuActive, _shellOverlayActive, _arranging;
     private int _scroll, _fullHeight;
     private string? _dragged, _target;
+    internal Rectangle AddButton => new(ClientSize.Width - 90, 2, 24, 23);
     private Rectangle OrderButton => new(ClientSize.Width - 62, 2, 28, 23);
     private Rectangle PinButton => new(ClientSize.Width - 30, 2, 24, 23);
-    internal event Action? PinRequested, OrderChanged;
+    internal event Action? PinRequested, OrderChanged, AddRequested;
+    internal event Action<string>? TokenSourceRequested;
+    protected override bool ShowWithoutActivation => true;
     internal Dashboard(Preferences preferences)
     {
         _preferences = preferences;
@@ -32,19 +34,29 @@ internal sealed class Dashboard : Form
         ResizeEnd += (_, _) => {
             Location = Platform.Fit(Location, Size, Screen.FromRectangle(Bounds).WorkingArea);
             preferences.Remember(Location);
-            try { preferences.Save(); } catch (Exception) { _tips.SetToolTip(this, "Position konnte nicht gespeichert werden."); }
+            try { preferences.Save(); } catch (Exception) { System.Diagnostics.Trace.WriteLine("UseScope: Position konnte nicht gespeichert werden."); }
         };
-        MouseLeave += (_, _) => _tips.SetToolTip(this, "");
     }
     internal void MenuActive(bool active)
     {
         _menuActive = active;
-        TopMost = _preferences.Pinned && !active;
+        ApplyForegroundPriority();
+    }
+    internal void ShellOverlayActive(bool active)
+    {
+        _shellOverlayActive = active;
+        ApplyForegroundPriority();
+    }
+    private void ApplyForegroundPriority()
+    {
+        var desired = _preferences.Pinned && !_menuActive && !_shellOverlayActive;
+        // Reapplying an unchanged TopMost value can reorder the widget above the Windows tray flyout.
+        if (TopMost != desired) TopMost = desired;
     }
     internal void Render(IReadOnlyDictionary<string, Reading> readings)
     {
         _readings = readings;
-        MenuActive(_menuActive);
+        ApplyForegroundPriority();
         var palette = Colors.For(_preferences.Theme);
         BackColor = palette.Surface; ForeColor = palette.Ink;
         var identities = _preferences.Identities.Where(item => item.Enabled).ToArray();
@@ -73,7 +85,7 @@ internal sealed class Dashboard : Form
         using var account = new Font(Font.FontFamily, 7.6f * 96f / 72f, FontStyle.Bold, GraphicsUnit.Pixel);
         using var numbers = new Font(Font.FontFamily, 7.2f * 96f / 72f, FontStyle.Bold, GraphicsUnit.Pixel);
         using var small = new Font(Font.FontFamily, 7.2f * 96f / 72f, FontStyle.Regular, GraphicsUnit.Pixel);
-        Artwork.Text(g, "Nutzungslimits", new Rectangle(12, 3, 250, 20), palette.Ink, heading);
+        Artwork.Text(g, "Nutzungslimits", new Rectangle(12, 3, Math.Max(1, AddButton.Left - 16), 20), palette.Ink, heading);
         DrawButtons(g, palette);
         g.DrawLine(border, 12, 27, Width - 12, 27);
         var saved = g.Save(); g.SetClip(new Rectangle(1, 29, Width - 2, Math.Max(0, Height - 30)));
@@ -103,37 +115,48 @@ internal sealed class Dashboard : Form
                 using var line = new Pen(Color.FromArgb(available ? 75 : 40, tint));
                 g.FillPath(fill, shape); g.DrawPath(line, shape);
                 using var dot = new SolidBrush(reading?.Observed is not null && !reading.Failed ? Color.FromArgb(0, 225, 163) : palette.Muted); g.FillEllipse(dot, badgeX - 9, y + 6, 4, 4);
-                var balance = reading?.Balance ?? "—";
-                if (reading?.Balance is not null && identity.Vendor == "claude") balance = "Guthaben " + balance;
+                var balance = ReadingPresentation.Balance(identity, reading);
                 Artwork.Text(g, balance, new Rectangle(badgeX + 6, y, 116, 16), palette.Ink, numbers, true);
             }
             if (reading?.Periods.Count > 0)
                 for (var index = 0; index < reading.Periods.Count; index++)
                     Meter(g, reading.Periods[index], index % 2, y + 18 + index / 2 * 17, palette, numbers, small, reading.Failed);
-            else Artwork.Text(g, ReadingPresentation.Summary(identity, reading), new Rectangle(16, y + 18, Width - 32, 17), palette.Muted, small);
+            else Artwork.Text(g, ReadingPresentation.Summary(identity, reading), new Rectangle(16, y + 18, Math.Max(1, Width - 128), 17), palette.Muted, small);
+            Artwork.Text(g, ReadingPresentation.TokenLabel(identity, reading), new Rectangle(Width - 100, y + 18, 88, 17),
+                reading?.Tokens is not null && !reading.Failed ? palette.Ink : palette.Muted, numbers, true);
             if (reading?.Failed == true) Artwork.Text(g, "!", new Rectangle(Width - 10, y, 8, 16), Color.DarkOrange, numbers);
             y += height;
             g.DrawLine(border, 12, y - 2, Width - 12, y - 2);
         }
-        if (_sections.Count == 0) Artwork.Text(g, "Konten über das Tray-Menü hinzufügen.", new Rectangle(12, 34, Width - 24, 24), palette.Muted, small);
+        if (_sections.Count == 0) Artwork.Text(g, "Konto über + hinzufügen.", new Rectangle(12, 34, Width - 24, 24), palette.Muted, small);
         g.Restore(saved);
     }
     private void Meter(Graphics g, Period period, int column, int y, Colors colors, Font numbers, Font small, bool stale)
     {
-        var span = (Width - 40) / 2;
+        var span = (Width - 40 - 88) / 2;
         var x = 16 + column * (span + 8);
-        Artwork.Text(g, Artwork.Countdown(period.Reset), new Rectangle(x, y, 58, 17), colors.Muted, small);
-        var track = new Rectangle(x + 58, y + 5, Math.Max(1, span - 93), 6);
+        Artwork.Text(g, Artwork.Countdown(period.Reset), new Rectangle(x, y, 72, 17), colors.Muted, small);
+        var track = new Rectangle(x + 72, y + 5, Math.Max(1, span - 107), 6);
         using var shape = Rounded(track, 3); using var background = new SolidBrush(colors.Track); g.FillPath(background, shape);
         using var gradient = new LinearGradientBrush(track, Color.FromArgb(110, 174, 137), Color.FromArgb(224, 91, 91), 0f);
         gradient.InterpolationColors = new ColorBlend { Positions = [0, .55f, .70f, .85f, 1], Colors = [Color.FromArgb(110, 174, 137), Color.FromArgb(132, 174, 133), Color.FromArgb(178, 172, 123), Color.FromArgb(213, 151, 104), Color.FromArgb(224, 91, 91)] };
+        if (_preferences.ShowRemainingQuota)
+        {
+            var blend = gradient.InterpolationColors;
+            gradient.InterpolationColors = new ColorBlend { Positions = blend.Positions.Reverse().Select(position => 1 - position).ToArray(), Colors = blend.Colors.Reverse().ToArray() };
+        }
+        var percent = ReadingPresentation.QuotaPercent(period, _preferences.ShowRemainingQuota);
         var state = g.Save(); g.SetClip(shape, CombineMode.Intersect);
-        g.IntersectClip(new Rectangle(track.X, track.Y, (int)Math.Round(track.Width * period.Percent / 100), track.Height));
+        g.IntersectClip(new Rectangle(track.X, track.Y, (int)Math.Round(track.Width * percent / 100), track.Height));
         g.FillRectangle(gradient, track); g.Restore(state);
-        Artwork.Text(g, $"{period.Percent:0}%", new Rectangle(x + span - 28, y, 28, 17), stale ? colors.Muted : colors.Ink, numbers, true);
+        Artwork.Text(g, $"{percent:0}%", new Rectangle(x + span - 28, y, 28, 17), stale ? colors.Muted : colors.Ink, numbers, true);
     }
     private void DrawButtons(Graphics g, Colors colors)
     {
+        using var plus = new Pen(colors.Ink, 1.5f);
+        var center = new Point(AddButton.X + AddButton.Width / 2, AddButton.Y + AddButton.Height / 2);
+        g.DrawLine(plus, center.X - 5, center.Y, center.X + 5, center.Y);
+        g.DrawLine(plus, center.X, center.Y - 5, center.X, center.Y + 5);
         using var pen = new Pen(_arranging ? Color.FromArgb(20, 190, 150) : colors.Muted, 1.4f);
         for (var row = 0; row < 3; row++) { var y = 7 + row * 6; g.DrawEllipse(pen, OrderButton.X + 8, y, 1, 1); g.DrawLine(pen, OrderButton.X + 13, y + .5f, OrderButton.X + 21, y + .5f); }
         using var lockPen = new Pen(_preferences.Pinned ? colors.Ink : colors.Muted, 1.6f);
@@ -144,33 +167,31 @@ internal sealed class Dashboard : Form
     protected override void OnMouseDown(MouseEventArgs args)
     {
         base.OnMouseDown(args); if (args.Button != MouseButtons.Left) return;
-        if (OrderButton.Contains(args.Location)) { _arranging = !_arranging; _dragged = _target = null; Invalidate(); return; }
-        if (PinButton.Contains(args.Location)) { PinRequested?.Invoke(); return; }
+        if (ActivateHeader(args.Location)) return;
+        var section = _sections.FirstOrDefault(item => new Rectangle(Width - 100, item.Bounds.Y + 18, 88, 17).Contains(args.Location));
+        if (section.Key is string tokenKey && _preferences.Identities.Any(item => item.Key == tokenKey && item.Vendor == "claude"))
+        { TokenSourceRequested?.Invoke(tokenKey); return; }
         if (_arranging && args.Y >= 29)
         { _dragged = _sections.FirstOrDefault(item => item.Bounds.Contains(args.Location)).Key; Capture = _dragged is not null; return; }
         if (args.Y < 28) { ReleaseCapture(); SendMessage(Handle, 0xA1, new IntPtr(2), IntPtr.Zero); }
+    }
+    internal bool ActivateHeader(Point location)
+    {
+        if (AddButton.Contains(location)) { AddRequested?.Invoke(); return true; }
+        if (OrderButton.Contains(location)) { _arranging = !_arranging; _dragged = _target = null; Invalidate(); return true; }
+        if (PinButton.Contains(location)) { PinRequested?.Invoke(); return true; }
+        return false;
     }
     protected override void OnMouseMove(MouseEventArgs args)
     {
         base.OnMouseMove(args);
         if (_dragged is not null)
         { _target = _sections.FirstOrDefault(item => item.Bounds.Contains(args.Location)).Key; Cursor = Cursors.SizeAll; Invalidate(); return; }
-        Cursor = _arranging && args.Y >= 29 ? Cursors.SizeAll : Cursors.Default;
-        string tip;
-        if (OrderButton.Contains(args.Location)) tip = _arranging ? "Konten verschieben: aktiv" : "Konten-Reihenfolge ändern";
-        else if (PinButton.Contains(args.Location)) tip = "Immer im Vordergrund";
-        else
-        {
-            var key = _sections.FirstOrDefault(item => item.Bounds.Contains(args.Location)).Key;
-            var reading = key is not null ? _readings.GetValueOrDefault(key) : null;
-            tip = reading?.Status ?? "";
-            var identity = _preferences.Identities.FirstOrDefault(item => item.Key == key);
-            if (identity is not null) tip += "\n" + ReadingPresentation.Detail(identity, reading);
-            if (reading?.Observed is DateTimeOffset instant) tip += "\nStand: " + instant.ToLocalTime().ToString("dd.MM. HH:mm:ss");
-            if (reading?.Failed == true) tip += "\nLetzte bekannte Werte; aktuelle Abfrage fehlgeschlagen.";
-            if (reading?.Periods.Count > 0) tip += "\n" + string.Join(" · ", reading.Periods.Select(period => period.Caption));
-        }
-        _tips.SetToolTip(this, tip);
+        Cursor = AddButton.Contains(args.Location) || OrderButton.Contains(args.Location) || PinButton.Contains(args.Location) ? Cursors.Hand
+            : _arranging && args.Y >= 29 ? Cursors.SizeAll : Cursors.Default;
+        var section = _sections.FirstOrDefault(item => item.Bounds.Contains(args.Location));
+        if (section.Key is not null && new Rectangle(Width - 100, section.Bounds.Y + 18, 88, 17).Contains(args.Location)
+            && _preferences.Identities.Any(item => item.Key == section.Key && item.Vendor == "claude")) Cursor = Cursors.Hand;
     }
     protected override void OnMouseUp(MouseEventArgs args)
     {
@@ -212,5 +233,5 @@ internal sealed class Dashboard : Form
     [DllImport("user32.dll")] private static extern bool ReleaseCapture();
     [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr handle, int message, IntPtr wparam, IntPtr lparam);
     protected override void Dispose(bool disposing)
-    { if (disposing) { _tips.Dispose(); foreach (var image in _images.Values) image?.Dispose(); Icon?.Dispose(); Font.Dispose(); } base.Dispose(disposing); }
+    { if (disposing) { foreach (var image in _images.Values) image?.Dispose(); Icon?.Dispose(); Font.Dispose(); } base.Dispose(disposing); }
 }

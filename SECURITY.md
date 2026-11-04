@@ -12,8 +12,15 @@ oder einen Pull Request schreiben. Ein bereits offengelegtes Token beim Anbieter
 widerrufen.
 
 UseScope liest vorhandene lokale CLI-Anmeldungen und verwendet sie für
-Anbieterabfragen. Diese Profile wie Passwörter behandeln. Die Anwendung selbst
-stellt keinen Netzwerkserver und keine Fernwartung bereit.
+Anbieterabfragen. Diese Profile wie Passwörter behandeln. UseScope bietet keine
+Fernwartung. Der optionale lokale API-Zähler startet nach bewusster Einrichtung
+einen ausschließlich an `127.0.0.1` gebundenen Loopback-Dienst. Jede Anfrage
+benötigt den getrennten lokalen Kontoschlüssel; Origin-/Hostprüfungen und eine
+feste Routenliste begrenzen den Zugriff. Diesen Schlüssel nicht weitergeben.
+
+Repository und Git-Historie werden in CI mit Gitleaks geprüft. Downloads enthalten
+keine vorbereiteten Konten oder Zugangsdaten. Nur geprüfte ZIPs aus `dist` verwenden;
+den persönlichen Datenordner und lokale Nutzungsjournale niemals mitverteilen.
 
 Der Download ist derzeit nicht digital signiert. Prüfsummen helfen beim Erkennen
 beschädigter oder veränderter Dateien, ersetzen aber keine Herausgebersignatur.

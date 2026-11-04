@@ -7,12 +7,14 @@
     <Nullable>enable</Nullable>
     <AssemblyName>UseScope</AssemblyName>
     <RootNamespace>UseScope.Desktop</RootNamespace>
-    <Version>2.1.0</Version>
+    <Version>2.6.0</Version>
     <Product>UseScope</Product>
     <Description>Persönliche Übersicht für KI-Nutzungslimits</Description>
     <ApplicationIcon>UseScope.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <EmbeddedResource Include="../docs/provider-catalog.json" LogicalName="UseScope.ProviderCatalog" />
     <None Update="Assets\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

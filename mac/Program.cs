@@ -33,6 +33,12 @@ internal static class MacChecks
         try
         {
             ApiChecks.Run(Check).GetAwaiter().GetResult();
+            BroadAdapterChecks.Run(Check).GetAwaiter().GetResult();
+            MeterChecks.Run(Check).GetAwaiter().GetResult();
+            TokenChecks.Run(Check).GetAwaiter().GetResult();
+            TokenPeriodChecks.Run(Check).GetAwaiter().GetResult();
+            PollingChecks.Run(Check).GetAwaiter().GetResult();
+            NativeUsageChecks.Run(Check).GetAwaiter().GetResult();
             if (OperatingSystem.IsMacOS())
             {
                 var unknown = new Identity("offline-check-" + Guid.NewGuid().ToString("N"), "deepseek", "Offline", temporary, true, true, 60, false);

@@ -21,8 +21,17 @@ settings.json.*
 profiles/
 cookies*
 api-key.dpapi*
+usage.jsonl
+usage-*.jsonl
 Thumbs.db
 .DS_Store
 **/__pycache__/
 *.pyc
+*.pdb
+*.pfx
+*.p12
+*.pem
+*.key
+*.bak
+*.jsonl
 **/.avalonia-build-tasks/

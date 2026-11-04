@@ -29,6 +29,11 @@ using System.Reflection;
 $launcher = Join-Path $launcherDirectory 'UseScope starten.exe'
 & $compiler /nologo /target:winexe /platform:anycpu /optimize+ /debug- /reference:System.Windows.Forms.dll "/win32icon:$(Join-Path $repository 'source\UseScope.ico')" "/out:$launcher" (Join-Path $repository 'launcher\Start.cs') $assembly
 if ($LASTEXITCODE -ne 0) { throw 'Starter-Build fehlgeschlagen.' }
+$installedLauncherDirectory = Join-Path $artifacts 'installed-launcher'
+New-Item -ItemType Directory -Path $installedLauncherDirectory -Force | Out-Null
+$installedLauncher = Join-Path $installedLauncherDirectory 'UseScope starten.exe'
+& $compiler /nologo /target:winexe /platform:anycpu /optimize+ /debug- /define:INSTALLED_STARTER /reference:System.Windows.Forms.dll "/win32icon:$(Join-Path $repository 'source\UseScope.ico')" "/out:$installedLauncher" (Join-Path $repository 'launcher\Start.cs') $assembly
+if ($LASTEXITCODE -ne 0) { throw 'Build des festen installierten Starters fehlgeschlagen.' }
 $checks = Get-Content -LiteralPath (Join-Path $verification 'checks.json') -Raw | ConvertFrom-Json
 [ordered]@{ Version = $version; SDK = $sdk; OfflineChecks = $checks.Checks.Count; Passed = $checks.Passed; PublishDirectory = $publish } |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $artifacts 'build.json') -Encoding utf8

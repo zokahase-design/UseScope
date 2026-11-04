@@ -30,7 +30,8 @@ internal static class Limits
             }
             if (balance is null && value["credits"] is JsonObject credits)
                 balance = JsonData.Flag(credits["unlimited"]) ? "Credits ∞"
-                    : JsonData.Text(credits["balance"]) is string amount ? $"Credits {amount}" : null;
+                    : JsonData.Number(credits["balance"]) is double number ? "Credits " + (JsonData.Text(credits["balance"])?.Trim()
+                        ?? number.ToString("0.################", CultureInfo.InvariantCulture)) : null;
         }
         if (snapshot is not null) Add(snapshot, "");
         if (data["rateLimitsByLimitId"] is JsonObject sets)
@@ -63,66 +64,17 @@ internal static class Limits
     }
 }
 
-internal sealed class CodexSource : IAccountSource
-{
-    public async Task<Reading> Query(Identity identity, CancellationToken cancellation)
-    {
-        if (!File.Exists(Path.Combine(identity.Profile, "auth.json")))
-            return new Reading(identity.Key, [], null, "Anmeldung erforderlich", null, true);
-        var info = Platform.Cli("codex", identity.Profile, false, "-c", "cli_auth_credentials_store='file'", "app-server");
-        info.Environment.Remove("OPENAI_API_KEY");
-        info.Environment.Remove("CODEX_API_KEY");
-        using var process = new Process { StartInfo = info };
-        process.Start();
-        var errors = process.StandardError.ReadToEndAsync(cancellation);
-        async Task<JsonObject> Call(int request, string method, JsonNode? parameters)
-        {
-            var message = new JsonObject { ["id"] = request, ["method"] = method, ["params"] = parameters };
-            await process.StandardInput.WriteLineAsync(message.ToJsonString().AsMemory(), cancellation);
-            await process.StandardInput.FlushAsync(cancellation);
-            while (await process.StandardOutput.ReadLineAsync(cancellation) is string line)
-            {
-                if (line.Length > 2_000_000) throw new InvalidDataException("Anbieterantwort zu groß.");
-                JsonObject? response;
-                try { response = JsonNode.Parse(line) as JsonObject; } catch (System.Text.Json.JsonException) { continue; }
-                if (response is null || JsonData.Number(response["id"]) != request) continue;
-                if (response["error"] is not null) throw new InvalidOperationException("Codex-Abfrage fehlgeschlagen.");
-                return response["result"] as JsonObject ?? new JsonObject();
-            }
-            throw new IOException("Codex-Verbindung wurde beendet.");
-        }
-        try
-        {
-            await Call(1, "initialize", new JsonObject { ["clientInfo"] = new JsonObject { ["name"] = "usescope_desktop", ["version"] = "2.0" } });
-            await process.StandardInput.WriteLineAsync("{\"method\":\"initialized\"}".AsMemory(), cancellation);
-            var account = await Call(2, "account/read", new JsonObject { ["refreshToken"] = false });
-            var response = await Call(3, "account/rateLimits/read", null);
-            return Limits.OpenAI(identity.Key, response, JsonData.Text((account["account"] as JsonObject)?["email"]), identity.Secondary);
-        }
-        finally
-        {
-            try { process.StandardInput.Close(); } catch (IOException) { }
-            if (!process.HasExited)
-            {
-                try { using var grace = new CancellationTokenSource(1000); await process.WaitForExitAsync(grace.Token); }
-                catch (OperationCanceledException) { try { process.Kill(true); } catch (InvalidOperationException) { } }
-            }
-            try { await errors.WaitAsync(TimeSpan.FromSeconds(1)); } catch (Exception) { }
-        }
-    }
-    public void Dispose() { }
-}
-
-internal sealed class RemoteFailure(string message, DateTimeOffset? retry = null, bool authentication = false) : Exception(message)
+internal sealed class RemoteFailure(string message, DateTimeOffset? retry = null, bool authentication = false, int? httpStatus = null) : Exception(message)
 {
     internal DateTimeOffset? Retry { get; } = retry;
     internal bool Authentication { get; } = authentication;
+    internal int? HttpStatus { get; } = httpStatus;
 }
 
 internal sealed class JsonTransport : IDisposable
 {
     private readonly HttpClient _client;
-    internal JsonTransport(HttpMessageHandler? handler = null) => _client = new(handler ?? new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(20) };
+    internal JsonTransport(HttpMessageHandler? handler = null) => _client = new(handler ?? new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false }) { Timeout = TimeSpan.FromSeconds(20) };
     internal async Task<JsonObject> Get(string url, string token, bool anthropic, CancellationToken cancellation)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps || !string.IsNullOrEmpty(uri.UserInfo)) throw new InvalidOperationException("HTTPS erforderlich.");
@@ -134,10 +86,10 @@ internal sealed class JsonTransport : IDisposable
         using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellation);
         if (response.StatusCode == HttpStatusCode.TooManyRequests)
             throw new RemoteFailure("Anbieter pausiert die Abfrage", response.Headers.RetryAfter?.Date
-                ?? DateTimeOffset.Now.Add(response.Headers.RetryAfter?.Delta ?? TimeSpan.FromMinutes(2)));
+                ?? DateTimeOffset.Now.Add(response.Headers.RetryAfter?.Delta ?? TimeSpan.FromMinutes(5)), httpStatus: 429);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-            throw new RemoteFailure("Anmeldung erneuern", authentication: true);
-        if (!response.IsSuccessStatusCode) throw new RemoteFailure($"Anbieter nicht erreichbar ({(int)response.StatusCode})");
+            throw new RemoteFailure("Anmeldung oder Leseberechtigung prüfen (HTTP " + (int)response.StatusCode + ")", authentication: true, httpStatus: (int)response.StatusCode);
+        if (!response.IsSuccessStatusCode) throw new RemoteFailure($"Anbieter nicht erreichbar (HTTP {(int)response.StatusCode})", httpStatus: (int)response.StatusCode);
         await response.Content.LoadIntoBufferAsync(2_000_000, cancellation);
         return JsonNode.Parse(await response.Content.ReadAsStringAsync(cancellation)) as JsonObject
             ?? throw new InvalidDataException("Ungültige Anbieterantwort.");
@@ -147,52 +99,89 @@ internal sealed class JsonTransport : IDisposable
 
 internal sealed class ClaudeSource : IAccountSource
 {
-    private readonly JsonTransport _transport = new();
+    private readonly JsonTransport _transport;
+    private readonly Func<string, CancellationToken, Task<JsonObject?>> _credential;
+    private readonly Func<Identity, CancellationToken, Task> _authStatus;
     private DateTimeOffset _nextWallet, _nextRenew;
     private string? _wallet;
+    private DateTimeOffset? _walletObserved;
+    private string? _walletNote;
+    private string? _boundAccount, _accessFingerprint;
+    internal ClaudeSource(JsonTransport? transport = null, Func<string, CancellationToken, Task<JsonObject?>>? credential = null,
+        Func<Identity, CancellationToken, Task>? authStatus = null)
+    {
+        _transport = transport ?? new(); _credential = credential ?? CredentialAccess.Claude;
+        _authStatus = authStatus ?? (async (account, token) => { await NativeConnections.Read(account, token, "auth", "status", "--json"); });
+    }
     public async Task<Reading> Query(Identity identity, CancellationToken cancellation)
     {
-        var oauth = await CredentialAccess.Claude(identity.Profile, cancellation);
+        var oauth = await _credential(identity.Profile, cancellation);
         var expires = JsonData.Number(oauth?["expiresAt"]);
+        async Task<bool> Recheck()
+        {
+            if (!identity.AutoRenew || _nextRenew > DateTimeOffset.UtcNow) return false;
+            _nextRenew = DateTimeOffset.UtcNow.AddMinutes(15);
+            var previous = JsonData.Text(oauth?["accessToken"]);
+            try { await _authStatus(identity, cancellation); }
+            catch (Exception error) when (error is RemoteFailure or IOException or InvalidOperationException) { }
+            oauth = await _credential(identity.Profile, cancellation);
+            return JsonData.Text(oauth?["accessToken"]) is string updated && updated != previous;
+        }
         if (identity.AutoRenew && expires is > 0 && expires < DateTimeOffset.Now.AddMinutes(5).ToUnixTimeMilliseconds() && _nextRenew < DateTimeOffset.Now)
         {
-            _nextRenew = DateTimeOffset.Now.AddMinutes(5);
-            using var renewal = Process.Start(Platform.Cli("claude", identity.Profile, false, "mcp", "list"));
-            if (renewal is not null)
-            {
-                var output = renewal.StandardOutput.ReadToEndAsync(cancellation);
-                var error = renewal.StandardError.ReadToEndAsync(cancellation);
-                try { await renewal.WaitForExitAsync(cancellation); }
-                finally { if (!renewal.HasExited) renewal.Kill(true); }
-                await Task.WhenAll(output, error);
-            }
-            oauth = await CredentialAccess.Claude(identity.Profile, cancellation);
+            await Recheck();
         }
         var token = JsonData.Text(oauth?["accessToken"]);
-        if (string.IsNullOrEmpty(token)) return new Reading(identity.Key, [], null, "Anmeldung erforderlich", null, true);
-        var response = await _transport.Get("https://api.anthropic.com/api/oauth/usage", token, true, cancellation);
+        if (string.IsNullOrEmpty(token)) throw new RemoteFailure("Claude-Anmeldung erforderlich", authentication: true);
+        var fingerprint = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token)));
+        if (_accessFingerprint is not null && _accessFingerprint != fingerprint) { _wallet = null; _walletObserved = null; _walletNote = null; _nextWallet = default; }
+        _accessFingerprint = fingerprint;
+        if (JsonData.Number(oauth?["expiresAt"]) is double expiry && expiry > 0 && expiry <= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
+            throw new RemoteFailure("Claude-Anmeldung abgelaufen; über Anmelden erneuern", authentication: true, httpStatus: 401);
+        JsonObject response;
+        try { response = await _transport.Get("https://api.anthropic.com/api/oauth/usage", token, true, cancellation); }
+        catch (RemoteFailure failure) when (failure.HttpStatus == 401)
+        {
+            if (!await Recheck()) throw;
+            token = JsonData.Text(oauth?["accessToken"]) ?? throw new RemoteFailure("Claude erneut anmelden", authentication: true);
+            response = await _transport.Get("https://api.anthropic.com/api/oauth/usage", token, true, cancellation);
+        }
         JsonObject? account = null;
+        int? supplementaryStatus = null; DateTimeOffset? supplementaryRetry = null;
         var meta = Path.Combine(identity.Profile, ".claude.json");
         if (File.Exists(meta))
         {
             try { account = (JsonNode.Parse(File.ReadAllText(meta)) as JsonObject)?["oauthAccount"] as JsonObject; }
             catch (Exception exception) when (exception is IOException or System.Text.Json.JsonException) { }
         }
+        var binding = LocalTokenReader.Binding(account);
+        if (_boundAccount is not null && _boundAccount != binding) { _wallet = null; _walletObserved = null; _walletNote = null; _nextWallet = default; }
+        _boundAccount = binding;
         if (identity.ShowBalance && _nextWallet < DateTimeOffset.Now && JsonData.Text(account?["organizationUuid"]) is string organization
             && Guid.TryParse(organization, out _))
         {
-            _nextWallet = DateTimeOffset.Now.AddMinutes(5);
+            _nextWallet = DateTimeOffset.Now.AddMinutes(15);
             try
             {
                 var wallet = await _transport.Get("https://api.anthropic.com/api/oauth/organizations/" + organization + "/prepaid/credits", token, true, cancellation);
                 _wallet = Limits.Wallet(wallet);
+                _walletObserved = _wallet is not null ? DateTimeOffset.UtcNow : null; _walletNote = null;
             }
-            catch (RemoteFailure failure) { _wallet = null; _nextWallet = failure.Retry ?? _nextWallet; }
-            catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { _wallet = null; }
-            catch (Exception exception) when (exception is HttpRequestException or InvalidDataException or System.Text.Json.JsonException) { _wallet = null; }
+            catch (RemoteFailure failure)
+            {
+                if (failure.Retry is DateTimeOffset retry && retry > _nextWallet) _nextWallet = retry;
+                if (failure.HttpStatus == 429) { supplementaryStatus = 429; supplementaryRetry = failure.Retry; }
+                _walletNote = "Guthabenabfrage pausiert; letzter bekannter Guthabenstand bleibt erhalten.";
+            }
+            catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { _walletNote = "Guthaben derzeit nicht aktualisierbar."; }
+            catch (Exception exception) when (exception is HttpRequestException or InvalidDataException or System.Text.Json.JsonException) { _walletNote = "Guthaben derzeit nicht aktualisierbar."; }
         }
         return new Reading(identity.Key, Limits.Anthropic(response, identity.Secondary), identity.ShowBalance ? _wallet : null,
-            JsonData.Text(account?["emailAddress"]) ?? "Verbunden", DateTimeOffset.Now);
+            JsonData.Text(account?["emailAddress"]) ?? "Verbunden", DateTimeOffset.Now,
+            Detail: "Claude-Abolimits · Abfrage höchstens alle fünf Minuten.\n" + (_walletNote ?? "")
+                + (_walletObserved is DateTimeOffset observed && identity.ShowBalance ? "\nGuthabenstand: " + observed.ToLocalTime().ToString("dd.MM. HH:mm") : ""),
+            TokenNote: "Die Claude-Abolimitabfrage meldet keine Tokenzahl. Für lokale Claude-Code-Nutzung eine Tokenquelle diesem Konto zuordnen; Webnutzung bleibt außerhalb der Messung.",
+            HttpStatus: supplementaryStatus, NextAttempt: supplementaryRetry, AccountBinding: LocalTokenReader.Binding(account));
     }
     public void Dispose() => _transport.Dispose();
 }

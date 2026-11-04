@@ -39,5 +39,6 @@ jobs:
             artifacts/source-audit.json
             artifacts/package-audit.json
             artifacts/package-test.json
+            artifacts/package-privacy.json
           if-no-files-found: error
           retention-days: 14

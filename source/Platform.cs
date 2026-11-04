@@ -13,23 +13,36 @@ internal static class Platform
         set
         {
             using var key = Registry.CurrentUser.CreateSubKey(StartupKey);
-            if (value) key.SetValue("UseScope", "\"" + Application.ExecutablePath + "\"");
+            if (value) key.SetValue("UseScope", "\"" + StartupExecutable + "\"");
             else key.DeleteValue("UseScope", false);
+        }
+    }
+    internal static string StartupExecutable
+    {
+        get
+        {
+            var directory = Path.GetDirectoryName(Application.ExecutablePath)!;
+            if (Path.GetFileName(directory).Equals("runtime", StringComparison.OrdinalIgnoreCase))
+            {
+                var starter = Path.Combine(Path.GetDirectoryName(directory)!, "tools", "UseScope starten.exe");
+                if (File.Exists(starter)) return starter;
+            }
+            return Application.ExecutablePath;
         }
     }
     internal static ProcessStartInfo Cli(string vendor, string profile, bool interactive, params string[] arguments)
     {
-        var name = vendor == "codex" ? "codex" : vendor == "claude" ? "claude" : "hermes";
+        var name = NativeConnections.Executable(vendor);
         var candidates = new[] {
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin", name + ".exe"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "npm", name + ".cmd")
         }.Concat((Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
-            .Where(path => path.Length > 0).Select(path => Path.Combine(path.Trim('"'), name + ".exe")));
+            .Where(path => path.Length > 0).SelectMany(path => new[] { ".exe", ".cmd", ".bat" }.Select(extension => Path.Combine(path.Trim('"'), name + extension))));
         var executable = candidates.FirstOrDefault(File.Exists) ?? throw new FileNotFoundException($"{name} ist nicht installiert.");
         var result = new ProcessStartInfo { WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             UseShellExecute = false, CreateNoWindow = !interactive, RedirectStandardInput = !interactive,
             RedirectStandardOutput = !interactive, RedirectStandardError = !interactive };
-        if (executable.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase))
+        if (executable.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) || executable.EndsWith(".bat", StringComparison.OrdinalIgnoreCase))
         {
             if (arguments.Any(value => value.Any(c => "\"&|<>^%!\r\n".Contains(c)))) throw new ArgumentException("Ungültiges CLI-Argument.");
             result.FileName = Path.Combine(Environment.SystemDirectory, "cmd.exe");
@@ -40,7 +53,7 @@ internal static class Platform
             result.FileName = executable;
             foreach (var argument in arguments) result.ArgumentList.Add(argument);
         }
-        result.Environment[vendor == "codex" ? "CODEX_HOME" : vendor == "claude" ? "CLAUDE_CONFIG_DIR" : "HERMES_HOME"] = profile;
+        NativeConnections.Isolate(result, vendor, profile);
         return result;
     }
     internal static Point Fit(Point requested, Size size, Rectangle area)

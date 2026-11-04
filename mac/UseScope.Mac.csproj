@@ -5,20 +5,49 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>UseScope</AssemblyName>
-    <Version>2.1.0</Version>
+    <Version>2.6.0</Version>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <EmbeddedResource Include="../docs/provider-catalog.json" LogicalName="UseScope.ProviderCatalog" />
     <PackageReference Include="Avalonia.Native" Version="11.3.22" />
     <PackageReference Include="Avalonia.Skia" Version="11.3.22" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
     <PackageReference Include="Avalonia.Headless" Version="11.3.22" />
     <Compile Include="../source/Data.cs" Link="Shared/Data.cs" />
+    <Compile Include="../source/AppInfo.cs" Link="Shared/AppInfo.cs" />
     <Compile Include="../source/Sources.cs" Link="Shared/Sources.cs" />
-    <Compile Include="../source/Monitor.cs" Link="Shared/Monitor.cs" />
+    <Compile Include="../source/CodexSessionSource.cs" Link="Shared/CodexSessionSource.cs" />
+    <Compile Include="../source/LocalTokenReader.cs" Link="Shared/LocalTokenReader.cs" />
+    <Compile Include="../source/TokenPeriods.cs" Link="Shared/TokenPeriods.cs" />
+    <Compile Include="../source/TokenPeriodChecks.cs" Link="Shared/TokenPeriodChecks.cs" />
+    <Compile Include="../source/PollingMonitor.cs" Link="Shared/PollingMonitor.cs" />
     <Compile Include="../source/Providers.cs" Link="Shared/Providers.cs" />
     <Compile Include="../source/ApiAccountSource.cs" Link="Shared/ApiAccountSource.cs" />
+    <Compile Include="../source/BillingTransport.cs" Link="Shared/BillingTransport.cs" />
+    <Compile Include="../source/AnthropicAnalyticsSource.cs" Link="Shared/AnthropicAnalyticsSource.cs" />
+    <Compile Include="../source/ConnectionSetup.cs" Link="Shared/ConnectionSetup.cs" />
+    <Compile Include="../source/AlibabaBillingSource.cs" Link="Shared/AlibabaBillingSource.cs" />
+    <Compile Include="../source/GoogleProjectSource.cs" Link="Shared/GoogleProjectSource.cs" />
+    <Compile Include="../source/NativeConnections.cs" Link="Shared/NativeConnections.cs" />
+    <Compile Include="../source/MuseSource.cs" Link="Shared/MuseSource.cs" />
+    <Compile Include="../source/MiniMaxBalanceSource.cs" Link="Shared/MiniMaxBalanceSource.cs" />
+    <Compile Include="../source/SourceFactory.cs" Link="Shared/SourceFactory.cs" />
+    <Compile Include="../source/AdditionalProviderSources.cs" Link="Shared/AdditionalProviderSources.cs" />
+    <Compile Include="../source/CloudBillingSources.cs" Link="Shared/CloudBillingSources.cs" />
+    <Compile Include="../source/ProviderCatalog.cs" Link="Shared/ProviderCatalog.cs" />
+    <Compile Include="../source/MeterData.cs" Link="Shared/MeterData.cs" />
+    <Compile Include="../source/MeterRuntime.cs" Link="Shared/MeterRuntime.cs" />
+    <Compile Include="../source/MeterNetwork.cs" Link="Shared/MeterNetwork.cs" />
+    <Compile Include="../source/UsageCapture.cs" Link="Shared/UsageCapture.cs" />
+    <Compile Include="../source/LoopbackMeterServer.cs" Link="Shared/LoopbackMeterServer.cs" />
     <Compile Include="../source/ApiChecks.cs" Link="Shared/ApiChecks.cs" />
+    <Compile Include="../source/BroadAdapterChecks.cs" Link="Shared/BroadAdapterChecks.cs" />
+    <Compile Include="../source/MeterChecks.cs" Link="Shared/MeterChecks.cs" />
+    <Compile Include="../source/TokenChecks.cs" Link="Shared/TokenChecks.cs" />
+    <Compile Include="../source/PollingChecks.cs" Link="Shared/PollingChecks.cs" />
+    <Compile Include="../source/NativeUsageChecks.cs" Link="Shared/NativeUsageChecks.cs" />
     <None Include="../source/Assets/*" Link="Assets/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../source/UseScope.ico" Link="UseScope.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

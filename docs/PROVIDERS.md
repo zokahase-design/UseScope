@@ -1,13 +1,13 @@
 # Verbindungen und Messumfang
 
-Stand: 03.11.2026. Ein Modellname bezeichnet kein eigenes Abrechnungskonto.
+Stand: 04.11.2026. Ein Modellname bezeichnet kein eigenes Abrechnungskonto.
 Entscheidend ist der Anbieter, über den deine Anfragen bezahlt werden. Die App
 leitet keine Kosten aus Preislisten und keine Tokenzahlen aus Guthabenänderungen ab.
 
 | Adapter | Datenquelle und Berechtigung | Messumfang |
 |---|---|---|
-| Codex | Offizieller lokaler [App-Server](https://developers.openai.com/codex/app-server/) nach CLI-Anmeldung | Vom Anbieter gemeldete Abo-Fenster, Reset, Credits |
-| Claude | Claude-Code-Anmeldung; private OAuth-Kontoendpunkte | Gemeldete Abo-Fenster und Prepaid-Guthaben; keine allgemeine öffentliche API-Zusage |
+| Codex | Offizieller lokaler [App-Server](https://learn.chatgpt.com/docs/app-server) nach CLI-Anmeldung | Abo-Fenster, Reset, Credits und optionaler account/usage/read-Tokenbericht, Zeitraum explizit |
+| Claude | Claude-Code-Anmeldung; private OAuth-Kontoendpunkte; optional bewusste lokale JSONL-Zuordnung | Abo-Fenster/Guthaben; lokale CLI-Token nur nach Einrichtung, keine Web-/Gerätegesamtsumme und keine allgemeine öffentliche Konto-API-Zusage |
 | Nous | Hermes-Anmeldung; privater Nous-Kontoendpunkt | Nur Nous-Portal-Credits, nicht beliebige Hermes-Provider |
 | DeepSeek | API-Key; [GET `/user/balance`](https://api-docs.deepseek.com/api/get-user-balance/) | `total_balance` je CNY/USD; Währungen werden nicht summiert. Keine kontoweite Tokenhistorie oder Kostensumme |
 | Kimi International | Internationaler API-Key; [GET `/v1/users/me/balance`](https://platform.kimi.ai/docs/api/balance) | `available_balance` in USD einschließlich Cash und Voucher; kein Kimi-Chat-/Code-Abo |
@@ -22,27 +22,29 @@ Bei Fehlern bleiben letzte Werte als veraltet gekennzeichnet; 429-Wartezeiten
 gelten auch für manuelle Aktualisierung. Leere oder unvollständige Antworten sind
 kein Beweis für einen Nullbetrag.
 
-## Portale in dieser Version
+## Ergänzte direkte Adapter in 2.2.0
 
-Diese Einträge zeigen Anbieterlogo, Bezeichnung und einen klaren Portalstatus.
-Sie öffnen auf Nutzeraktion die offizielle Website. Eine Anmeldung dort wird
-nicht als UseScope-Verbindung ausgegeben und liefert der App keine Cookies oder Schlüssel.
-
-| Eintrag | Offizieller Zugang | Automatisierung: Abgrenzung |
+| Adapter | Offizielle Quelle / Anmeldung | Messumfang und Grenze |
 |---|---|---|
-| Grok / SuperGrok | [Grok](https://grok.com) | App-Abo getrennt von xAI API |
-| Gemini | [Google AI Studio](https://aistudio.google.com) | API-Projekt und Google-AI-Abo getrennt. Google dokumentiert [Billing im Dashboard](https://ai.google.dev/gemini-api/docs/billing); Cloud Monitoring benötigt gesonderte OAuth-/IAM-Rechte |
-| Qwen | [Alibaba Model Studio](https://modelstudio.console.alibabacloud.com) | Cloud-Abrechnung und Coding-/Tokenpläne besitzen eigene Berechtigungen. Eine Model-Studio-API-Key-Verbindung allein ist keine Cloud-Billing-Verbindung |
-| Wan | [Alibaba Model Studio](https://modelstudio.console.alibabacloud.com) | Videokosten im verwendeten API-/Cloud-Konto. Nicht denselben Cloud-Gesamtbetrag zusätzlich als Qwen-Guthaben zählen |
-| MiniMax / Hailuo | [MiniMax API Platform](https://platform.minimax.io) | PAYG/H3, Hailuo und M-Plan unterscheiden. Ein [dokumentierter M-Plan-Abruf](https://www.minimax.io/m-plan) ist kein belegtes H3-Guthaben; in dieser Version noch kein M-Plan-Adapter |
-| Meta Muse Image / Wonder | [Meta Developers](https://dev.meta.ai) | Muse-Code-Abo und Model-API-Abrechnung unterscheiden. Meta dokumentiert [`muse usage`](https://dev.meta.ai/docs/muse-code/changelog); dieser CLI-Adapter ist noch nicht eingebaut |
-| Anthropic API | [Claude API Platform](https://platform.claude.com) | API-Organisation getrennt vom Claude-Abo. [Admin-Analytics](https://platform.claude.com/docs/en/manage-claude/usage-cost-analytics-api) benötigen eigene Rechte und einen eigenen Adapter |
+| Anthropic API | [Usage/Cost Analytics](https://platform.claude.com/docs/en/manage-claude/usage-cost-analytics-api), Admin-Key | UTC-Monat bis zur letzten vollständigen Stunde, Token inkl. Cache, USD-Cents geteilt durch 100. Provider-Snapshot wird angezeigt; 4–24h Verzögerung möglich. Priority-Vertragsgebühren nicht stillschweigend enthalten |
+| Meta Muse Code | [MSP-Protokoll](https://meta-models.github.io/muse-code-sdk/next/guides/msp-wire/), eigene Muse-CLI-Anmeldung | `usage/refresh` experimentell; pro Host begrenzt. Fallback `usage/read` ist nur zuletzt beobachteter Anbieterstand. Gemeinsame Abo-Fenster, keine getrennten Image-/Wonder-Wallets |
+| MiniMax M-Plan | [Hersteller-CLI](https://github.com/MiniMax-AI/cli), `mmx auth login` | Explizite Intervall-/Wochen-Restprozente. Uneindeutige historische `usage_count`-Werte werden nicht interpretiert. Status 3 mit Nullkontingent bedeutet kein zugesichertes freies Video |
+| MiniMax Global PAYG | [MiniMax Platform](https://platform.minimax.io), `/account/query_balance` | Verfügbarer Betrag. Die Antwort liefert keinen Währungscode: Nutzer übernimmt USD/CNY ausdrücklich aus seinem Portal; Anzeige mit `*`. M-Plan und Hailuo separat |
+| Google Gemini API / Cloud | [Cloud Monitoring](https://cloud.google.com/monitoring/api/metrics_gcp_d_h), `gcloud auth login`, Projekt-IAM | Projekt-Anfragen und gemeldete Output-Token; keine erfundenen Input-Token und kein Gemini-App-Abo. Kosten nur optional aus konkret angegebener bestehender [Billing-Exporttabelle](https://cloud.google.com/billing/docs/how-to/export-data-bigquery). BigQuery-Abfragen können kostenpflichtig sein |
+| Qwen/Wan Cloud | [BSS Account Balance](https://www.alibabacloud.com/help/en/user-center/developer-reference/api-bssopenapi-2017-12-14-queryaccountbalance), QueryBillOverview; RAM-Leserechte | Gemeinsames Cashguthaben ohne Kreditrahmen; laufende Monatskosten für ganzes Cloudkonto oder expliziten Produktcode. Qwen/Wan können dasselbe Wallet zeigen; niemals doppelt addieren |
+| Alibaba Coding-/Tokenplan | [Bailian Usage CLI](https://help.aliyun.com/en/model-studio/cli/usage-quota), Console-Login, eigene Site/Region | Coding-Fenster bzw. tatsächlich gemeldete dynamische Tokenfenster; keine Cloud-Geldsaldo-Umrechnung. Internationale Abdeckung hängt von Hersteller-CLI und Konto ab |
+| Arcee API | [Usage summary](https://docs.arcee.ai/api-reference/usage), Bearer-Key | Gemeldete Input-/Output-/Gesamt-Token und Anfragen im UTC-Monat; keine Kostensumme aus Tokenpreisen |
+| StepFun International | [Accounts API](https://platform.stepfun.ai/docs/en/api-reference/accounts/get), API-Key | Aktueller Saldo, USD gemäß internationaler Preisliste (`*`, kein Währungsfeld). Lifetime-Einzahlungen und Voucher werden nicht addiert; Step Plan separat |
+| Mistral Enterprise Admin | [Admin Usage](https://docs.mistral.ai/admin/admin-api/usage-metrics), dedizierter `x-api-key` | Gemeldete API-Aufrufsumme im UTC-Monat. Enterprise-Zugang erforderlich; heterogene Billing-Metriken sind keine allgemeine Text-Token-/Kostensumme. Kein Le-Chat-Abo |
+| DigitalOcean Cloud Billing | [Customer balance](https://docs.digitalocean.com/reference/api/reference/billing/), PAT mit `billing:read` | Gesamtes Cloudkonto: Monatssaldo und Monatsverbrauch mit gemeldetem Zeitstand. Vorzeichen unverändert, USD gemäß Anbieterabrechnung (`*`). Kein reiner KI-Verbrauch; Inference-Key separat |
 
-Alibaba bietet ebenfalls [offizielle CLI-Abfragen für Coding- und Tokenpläne](https://docs.modelstudio.console.alibabacloud.com/en/model-studio/cli/usage-quota)
-und eine gesonderte [Cloud-Balance-API](https://www.alibabacloud.com/help/en/user-center/developer-reference/api-bssopenapi-2017-12-14-queryaccountbalance).
-Dass diese Adapter hier noch fehlen, bedeutet nicht, dass der Anbieter grundsätzlich
-keine Abfragemöglichkeit besitzt. Kosten aus Bild- und Videogenerierung lassen sich
-auch nicht sinnvoll pauschal als Text-Token behandeln.
+## Optionaler lokaler API-Zähler
+
+46 der 53 Anbieterfamilien besitzen einen Preset für unterstützte API-Protokolle, 39 mit fester öffentlicher Basisadresse und 7 mit eigener Ressourcen-/Konto-Adresse. Zusätzlich bestehen direkte Adapter und separate Produkte wie Nous, Arcee und OpenRouter. Diese Zahlen sind keine Zahl getesteter Livekonten. [Alle Anbieter und Quellen](PROVIDER_MATRIX.md), [Einrichtung, Speicherung und Grenzen](API_METER.md).
+
+Ein OpenAI-kompatibler Inferenz-Endpunkt ist keine kontoweite Billing-API. Der Zähler erfasst nur geroutete Anfragen. Fehlende Token oder Geldfelder bleiben unbekannt. Bei Medien-/Videodiensten ist eine Anfrage nicht automatisch eine Tokenmenge; asynchrone Jobs und Training sind nicht pauschal abgedeckt.
+
+Grok/SuperGrok bleibt als separates App-Portal verfügbar. InclusionAI-Modellnutzung wird beim tatsächlichen Host gemessen. Für Thinking Machines/Tinker, Makora, Modal, Wafer und Modular existiert in diesem Prüfstand noch kein verifizierter automatischer Adapter. Sie werden als Info/Portal gekennzeichnet. Das ist eine offene Abdeckungslücke und kein Beleg technischer Unmöglichkeit.
 
 ## Anmeldeprüfung und ihre Grenzen
 

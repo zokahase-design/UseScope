@@ -9,6 +9,24 @@ internal static class ApiChecks
     internal static async Task Run(Action<bool, string> check)
     {
         var account = new Identity("api-example", "deepseek", "Beispiel", Path.GetTempPath(), true, true, 60, false);
+        var instant = DateTimeOffset.Parse("2030-01-02T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture);
+        check(ReadingPresentation.Countdown(instant, instant) == "0h 0min" && ReadingPresentation.Countdown(instant.AddHours(-1), instant) == "0h 0min", "Expired resets show a numeric zero duration");
+        check(ReadingPresentation.Countdown(instant.AddHours(5), instant) == "5h 0min", "Countdown keeps zero minutes visible");
+        check(ReadingPresentation.Countdown(instant.AddDays(6).AddHours(23).AddMinutes(59), instant) == "6d 23h 59min", "Multi-day countdown retains hours and minutes");
+        check(ReadingPresentation.Countdown(null, instant) == "Unbekannt", "Missing reset is named instead of invented as zero");
+        Reading Sample(string? balance) => new(account.Key, [], balance, "Verbunden", instant);
+        check(ReadingPresentation.Balance(account, Sample("Credits 0")) == "0 Credits", "Reported zero credits show a numeric value and unit");
+        check(ReadingPresentation.Balance(account with { Vendor = "claude" }, Sample("0,00 €")) == "Guthaben 0,00 €", "Reported zero money retains currency");
+        check(ReadingPresentation.Balance(account, null) == "Wird abgefragt …", "Not-yet-observed balance is a loading state");
+        foreach (var absent in new string?[] { null, "", " ", "-", "—", "–" })
+            check(ReadingPresentation.Balance(account, Sample(absent)) == "Nicht gemeldet", "Missing or legacy-placeholder balance is explicitly unknown: " + (absent ?? "null"));
+        foreach (var value in new[] { "0", "\"0\"", "5.5", "\"5.5\"" })
+        {
+            var credits = Limits.OpenAI(account.Key, Json("{\"rateLimits\":{\"credits\":{\"balance\":" + value + "}}}"), null);
+            check(credits.Balance == "Credits " + value.Trim('"'), "Numeric and textual Codex credits retained: " + value);
+        }
+        foreach (var absent in new[] { "null", "\"\"", "\" \"", "\"-\"", "\"—\"", "\"NaN\"" })
+            check(Limits.OpenAI(account.Key, Json("{\"rateLimits\":{\"credits\":{\"balance\":" + absent + "}}}"), null).Balance is null, "Missing Codex balance never invents zero: " + absent);
         check(Providers.All.Select(item => item.Id).Distinct().Count() == Providers.All.Length, "Provider IDs unique");
         check(Providers.All.All(item => new Uri(item.Portal).Scheme == "https" && !string.IsNullOrWhiteSpace(item.Help)), "All providers have HTTPS portal and connection guidance");
         foreach (var invalid in new[] { "tiny", "example\ninvalid-key", "example key invalid", "nonascii-ä-example" })

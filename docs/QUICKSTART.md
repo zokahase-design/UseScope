@@ -2,7 +2,7 @@
 
 1. Dieses ZIP vollständig entpacken.
 2. Im entpackten Ordner `UseScope starten.exe` öffnen.
-3. Über das Tray-Menü ein Konto hinzufügen. Je nach Auswahl in der Anbieter-CLI anmelden, einen API-Schlüssel selbst hinterlegen oder das Anbieterportal öffnen.
+3. Über das Pluszeichen oben rechts im Widget oder das Tray-Menü ein Konto hinzufügen. Je nach Auswahl in der Anbieter-CLI anmelden, einen API-Schlüssel selbst hinterlegen oder das Anbieterportal öffnen.
 
 Der Starter findet `runtime\UseScope.exe` relativ zu seinem eigenen Ordner.
 Beide müssen in dieser Anordnung zusammenbleiben. Die Anwendung und ihre .NET-10-
@@ -11,11 +11,58 @@ kann `runtime\UseScope.exe` auch direkt geöffnet werden.
 
 Für Codex, Claude und Nous muss die jeweilige Anbieter-CLI separat installiert sein. UseScope enthält keine
 Codex-, Claude-Code- oder Hermes-Installation und keine vorbereiteten Konten.
+Weitere native Verbindungen benötigen entsprechend Muse, mmx, gcloud oder Bailian. Der Kontodialog nennt den Weg.
+
+Für den optionalen lokalen API-Zähler im KI-Client die angezeigte lokale API-Adresse und den lokalen Schlüssel eintragen; den eigentlichen Inference-Key speichert UseScope geschützt. UseScope muss während der API-Nutzung laufen. Nur dadurch geleitete Nutzung wird gezählt, keine historische Kontosumme. Siehe API_METER.md und PROVIDER_MATRIX.md.
 
 Linksklick auf das Tray-Symbol oder `Strg+Alt+U` blendet das Widget ein und aus.
 Rechtsklick öffnet Konten, Aktualisieren, Darstellung, Windows-Start und Beenden.
+Das Menü gruppiert Schnellaktionen, Konto hinzufügen/Konten sowie Darstellung
+und Programmende. Im Konto-Untermenü folgen auf Werte und Aktualisieren die
+Anzeigeoptionen, Verbindungsaktionen und die Kontoverwaltung.
 Am Schloss wird der Vordergrundmodus umgeschaltet. Das Listensymbol aktiviert
 die Kontosortierung. Das Widget lässt sich an der Überschrift verschieben.
+
+Unter Darstellung → Limitbalken zwischen verbrauchtem Kontingent (Balken füllen
+sich von 0 auf 100 %) und verfügbarem Kontingent (Balken leeren sich von 100 auf
+0 %) wählen. Die Prozentzahl wechselt mit, die Auswahl bleibt gespeichert.
+
+Gemeldete Nullwerte bleiben sichtbar, z. B. `0 Credits` oder `0 %`. Abgelaufene
+Resetzeiten erscheinen als `0h 0min`. Meldet der Anbieter kein Guthaben oder
+keinen Resetzeitpunkt, steht dort `Nicht gemeldet` bzw. `Unbekannt`; diese Angaben
+sind keine gemessenen Nullwerte. Vor der ersten Abfrage steht `Wird abgefragt …`.
+
+Rechts neben den Limitbalken steht der Tokenverbrauch, z. B. `12,3k Token`.
+Den genauen Wert, Zeitraum und die Datenquelle findest du über „Werte und
+Verbindung erklären…“ im Kontomenü (Mac: „Infos“). Es gibt keine Hover-Infofenster.
+`≥` kennzeichnet eine Teilmessung, `Token n. v.` eine fehlende Tokenquelle.
+Siehe TOKENS.md für die Abdeckung der jeweiligen Verbindung.
+
+Den Tokenzeitraum je Konto unter Tray-Menü → Konten → Konto → Tokenzeitraum
+ändern (Mac: Konten → Tokenzeitraum). Codex benötigt für Kalenderfenster
+gemeldete Tageswerte. Lokale Quellen bieten zusätzlich letzte 24 Stunden und
+7 × 24 Stunden. Kosten und Guthaben behalten ihren bisherigen Zeitraum.
+
+UseScope fragt native Konten automatisch frühestens alle fünf Minuten und
+API-Abrechnungen frühestens alle zehn Minuten ab. Konten desselben Anbieters
+werden nacheinander mit Abstand abgefragt; es laufen insgesamt höchstens zwei
+Anbieterabfragen gleichzeitig. Manuelles Aktualisieren hat einen Mindestabstand
+von einer Minute und überspringt keine Anbieterpause. Nach Fehlern werden die
+Pausen länger; das Kontomenü erklärt den nächsten Versuch. Letzte bekannte Werte
+bleiben bei vorübergehenden Verbindungsfehlern als veraltet gekennzeichnet.
+Bei ausgeblendetem Widget pausieren die automatischen Anbieterabfragen; beim
+Einblenden werden fällige Abfragen nachgeholt. Der aktivierte lokale API-Zähler
+kann weiterhin Anfragen durchleiten und zählen. Manuelle Aktualisierung bleibt möglich.
+
+Bei `Anmeldung erforderlich` das betroffene Konto über `Anmelden…` selbst neu
+anmelden. Browser oder Desktop-App müssen dafür nicht allein wegen der
+zusätzlichen UseScope-Abfrage geschlossen werden. Fremde Browser-Sitzungen
+werden nicht übernommen.
+
+Codex-Token werden nach Verfügbarkeit aus dem Kontobericht der CLI gelesen.
+Bei Claude auf `Tokenquelle…` klicken und lokale Sitzungsdateien bewusst diesem
+Konto zuordnen. Damit werden keine Token aus Claude-Web oder anderen Geräten
+gezählt. Einzelheiten und Messgrenzen stehen in TOKENS.md.
 
 Vor einem Update UseScope selbst über das Tray-Menü beenden. Dann das neue Paket
 vollständig entpacken. Einstellungen und Anmeldungen bleiben unter

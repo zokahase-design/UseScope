@@ -8,11 +8,12 @@ internal sealed class DesktopApp : ApplicationContext
     private readonly Preferences _preferences;
     private readonly Dashboard _view;
     private readonly NotifyIcon _tray;
-    private readonly ContextMenuStrip _menu = new();
+    private readonly ContextMenuStrip _menu = new() { ShowItemToolTips = false };
     private readonly AccountMonitor _monitor = new();
     private readonly Dictionary<string, Reading> _readings = new();
     private readonly System.Windows.Forms.Timer _clock = new() { Interval = 15_000 };
     private readonly ShortcutWindow _shortcut;
+    private readonly ShellOverlayGuard _shell;
     private bool _closing;
     private bool _paintPending;
     internal DesktopApp(Preferences preferences)
@@ -20,9 +21,15 @@ internal sealed class DesktopApp : ApplicationContext
         _preferences = preferences;
         _view = new Dashboard(preferences) { ContextMenuStrip = _menu };
         _ = _view.Handle;
-        _tray = new NotifyIcon { Text = "UseScope · Nutzungslimits", Icon = Artwork.CreateIcon(), ContextMenuStrip = _menu, Visible = true };
+        _tray = CreateTrayIcon(_menu); _tray.Visible = true;
+        _shell = new ShellOverlayGuard(_view, active => {
+            _view.ShellOverlayActive(active);
+            if (!active && _paintPending) Paint();
+        });
         _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) Toggle(); };
         _view.OrderChanged += Paint;
+        _view.AddRequested += Add;
+        _view.TokenSourceRequested += key => { var identity = _preferences.Identities.FirstOrDefault(item => item.Key == key); if (identity is not null) _ = ConfigureTokens(identity); };
         _view.PinRequested += () => Change(() => preferences.Pinned = !preferences.Pinned);
         _menu.Opening += (_, e) => {
             _view.MenuActive(true);
@@ -39,16 +46,16 @@ internal sealed class DesktopApp : ApplicationContext
             })); } catch (InvalidOperationException) { }
         };
         _shortcut = new ShortcutWindow(preferences.Shortcut, Toggle);
-        _clock.Tick += (_, _) => { Paint(); _ = Poll(false); };
+        _clock.Tick += (_, _) => { Paint(); if (_view.Visible) _ = Poll(false); };
         _clock.Start();
-        Paint(); _view.Place(); _view.Show();
+        _shell.Poll(); Paint(); _view.Place(); _view.Show();
         _ = Poll(true);
         if (Platform.StartsWithWindows) Platform.StartsWithWindows = true;
     }
     private void Paint()
     {
         if (_closing) return;
-        if (_menu.Visible) { _paintPending = true; return; }
+        if (_menu.Visible || (_view.Visible && _shell.IsOpen)) { _paintPending = true; return; }
         _paintPending = false;
         _view.Render(_readings);
     }
@@ -56,19 +63,20 @@ internal sealed class DesktopApp : ApplicationContext
     {
         if (_closing) return;
         var identities = _preferences.Identities;
+        await MeterRuntime.Shared.StartIfNeeded(identities);
         try { await Task.Run(() => _monitor.Refresh(identities, force, key)); }
         catch (OperationCanceledException) { }
-        catch (Exception) { if (!_closing) _tray.Text = "UseScope · Aktualisierung derzeit nicht möglich"; }
+        catch (Exception) { /* Account failures retain their visible status; no tray hover popups. */ }
     }
     private void Toggle()
     {
         if (_menu.Visible) _menu.Close();
         if (_view.Visible) _view.Hide();
-        else { Paint(); _view.Place(); _view.Show(); }
+        else { Paint(); _view.Place(); _view.Show(); _ = Poll(false); }
     }
     private void Change(Action mutation)
     {
-        try { mutation(); _preferences.Save(); Paint(); }
+        try { mutation(); _preferences.Save(); MeterRuntime.Shared.Update(_preferences.Identities); Paint(); }
         catch (Exception) { MessageBox.Show(_view, "Die Änderung konnte nicht gespeichert werden.", "UseScope", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
     }
     private static ToolStripMenuItem Command(string title, Action action, bool check = false)
@@ -81,10 +89,11 @@ internal sealed class DesktopApp : ApplicationContext
     {
         var old = _menu.Items.Cast<ToolStripItem>().ToArray();
         _menu.Items.Clear(); foreach (var item in old) { DisposeImages(item); item.Dispose(); }
-        _menu.Items.Add(new ToolStripMenuItem("UseScope") { Enabled = false });
+        _menu.Items.Add(CreateMenuHeading());
         _menu.Items.Add(Command("Widget ein- / ausblenden", Toggle));
         _menu.Items.Add(Command("Nutzung aktualisieren", () => _ = Poll(true)));
         _menu.Items.Add(new ToolStripSeparator());
+        _menu.Items.Add(Command("Konto hinzufügen…", Add));
         var accounts = new ToolStripMenuItem("Konten");
         foreach (var identity in _preferences.Identities)
         {
@@ -93,13 +102,25 @@ internal sealed class DesktopApp : ApplicationContext
             var account = new ToolStripMenuItem(title) { Image = Artwork.ProviderImage(identity.Vendor, _preferences.Theme) };
             account.DropDownItems.Add(new ToolStripMenuItem(observed?.Failed == true ? observed.Status : "Kontoverbindung") { Enabled = false });
             var provider = Providers.Get(identity.Vendor);
-            account.DropDownItems.Add(Command(provider.Connection == ConnectionKind.Native ? "Anmelden…" : provider.Connection == ConnectionKind.ApiKey ? "API-Schlüssel hinterlegen…" : "Portal öffnen…", () => Login(identity)));
-            account.DropDownItems.Add(Command("Offizielles Anbieterportal…", () => OpenPortal(identity)));
+            var meter = MeterStorage.Enabled(identity);
             account.DropDownItems.Add(Command("Werte und Verbindung erklären…", () => MessageBox.Show(ReadingPresentation.Detail(identity, _readings.GetValueOrDefault(identity.Key)) + "\n\n" + provider.Help, provider.Name)));
-            account.DropDownItems.Add(Command("Verbindung erneuern", () => _ = Poll(true, identity.Key)));
-            if (provider.Connection != ConnectionKind.Portal) account.DropDownItems.Add(Command(provider.Connection == ConnectionKind.ApiKey ? "API-Schlüssel lokal löschen…" : "Abmelden…", () => _ = Logout(identity)));
+            account.DropDownItems.Add(Command("Nutzung aktualisieren", () => _ = Poll(true, identity.Key)));
             account.DropDownItems.Add(new ToolStripSeparator());
+            account.DropDownItems.Add(TokenPeriodMenu(identity, observed, key => _ = SetTokenPeriod(identity, key)));
             account.DropDownItems.Add(Command("Guthaben / Credits anzeigen", () => Change(() => _preferences.SetBalance(identity, !identity.ShowBalance)), identity.ShowBalance));
+            if (identity.Vendor == "claude")
+            {
+                account.DropDownItems.Add(Command("Lokale Tokenquelle…", () => _ = ConfigureTokens(identity)));
+                if (LocalTokenReader.DirectoryFor(identity) is not null) account.DropDownItems.Add(Command("Lokale Tokenquelle entfernen", () => _ = SetTokenDirectory(identity, null)));
+            }
+            account.DropDownItems.Add(new ToolStripSeparator());
+            if (meter || provider.Connection != ConnectionKind.Portal)
+                account.DropDownItems.Add(Command(meter ? "API-Zähler einrichten…" : provider.Connection == ConnectionKind.Native ? "Anmelden…" : "API-Schlüssel hinterlegen…", () => Login(identity)));
+            if (meter) account.DropDownItems.Add(Command("API-Adresse und lokalen Schlüssel…", () => _ = ShowMeterClient(identity)));
+            if (meter) account.DropDownItems.Add(Command("API-Verbindung ohne Generierung prüfen", () => _ = CheckMeter(identity)));
+            account.DropDownItems.Add(Command("Offizielles Anbieterportal…", () => OpenPortal(identity)));
+            if (meter || provider.Connection != ConnectionKind.Portal) account.DropDownItems.Add(Command(meter || provider.Connection == ConnectionKind.ApiKey ? "API-Schlüssel lokal löschen…" : "Abmelden…", () => _ = Logout(identity)));
+            account.DropDownItems.Add(new ToolStripSeparator());
             account.DropDownItems.Add(Command("Nach oben", () => Change(() => _preferences.Move(identity, -1))));
             account.DropDownItems.Add(Command("Nach unten", () => Change(() => _preferences.Move(identity, 1))));
             account.DropDownItems.Add(Command("Aus Anzeige entfernen…", () => Remove(identity)));
@@ -107,17 +128,22 @@ internal sealed class DesktopApp : ApplicationContext
         }
         if (accounts.DropDownItems.Count == 0) accounts.DropDownItems.Add(new ToolStripMenuItem("Noch keine Konten") { Enabled = false });
         _menu.Items.Add(accounts);
-        _menu.Items.Add(Command("Konto hinzufügen…", Add));
+        _menu.Items.Add(new ToolStripSeparator());
         var display = new ToolStripMenuItem("Darstellung");
-        display.DropDownItems.Add(Command("Immer im Vordergrund", () => Change(() => _preferences.Pinned = !_preferences.Pinned), _preferences.Pinned));
         var themes = new ToolStripMenuItem("Farbschema");
         themes.DropDownItems.Add(Command("Hell", () => Change(() => _preferences.Theme = "Hell"), _preferences.Theme == "Hell"));
         themes.DropDownItems.Add(Command("Dunkel", () => Change(() => _preferences.Theme = "Dark"), _preferences.Theme == "Dark"));
         display.DropDownItems.Add(themes);
+        var quota = new ToolStripMenuItem("Limitbalken");
+        quota.DropDownItems.Add(Command("Verbraucht · Balken füllen sich", () => Change(() => _preferences.ShowRemainingQuota = false), !_preferences.ShowRemainingQuota));
+        quota.DropDownItems.Add(Command("Verfügbar · Balken leeren sich", () => Change(() => _preferences.ShowRemainingQuota = true), _preferences.ShowRemainingQuota));
+        display.DropDownItems.Add(quota);
         var location = new ToolStripMenuItem("Position");
         foreach (var (key, text) in new[] { ("BottomRight", "Unten rechts"), ("TopRight", "Oben rechts"), ("TopLeft", "Oben links"), ("BottomLeft", "Unten links"), ("Center", "Bildschirmmitte"), ("NearCursor", "Am Mauszeiger"), ("LastPosition", "Letzte Position") })
             location.DropDownItems.Add(Command(text, () => { Change(() => _preferences.Position = key); _view.Place(); }, _preferences.Position == key));
         display.DropDownItems.Add(location);
+        display.DropDownItems.Add(new ToolStripSeparator());
+        display.DropDownItems.Add(Command("Immer im Vordergrund", () => Change(() => _preferences.Pinned = !_preferences.Pinned), _preferences.Pinned));
         _menu.Items.Add(display);
         _menu.Items.Add(Command("Mit Windows starten", () => Change(() => Platform.StartsWithWindows = !Platform.StartsWithWindows), Platform.StartsWithWindows));
         _menu.Items.Add(new ToolStripSeparator());
@@ -126,45 +152,101 @@ internal sealed class DesktopApp : ApplicationContext
     }
     internal static void StyleMenu(ToolStrip strip, Colors palette)
     {
+        strip.ShowItemToolTips = false;
         strip.BackColor = palette.Surface; strip.ForeColor = palette.Ink;
-        strip.Renderer = new ToolStripProfessionalRenderer(new MenuPalette(palette));
+        strip.Renderer = new MenuRenderer(palette);
         foreach (ToolStripItem item in strip.Items)
         {
             item.ForeColor = palette.Ink;
             if (item is ToolStripMenuItem child && child.HasDropDownItems) StyleMenu(child.DropDown, palette);
         }
     }
+    internal static ToolStripLabel CreateMenuHeading() => new(AppInfo.MenuTitle);
+    internal static ToolStripMenuItem TokenPeriodMenu(Identity identity, Reading? reading, Action<string> choose)
+    {
+        var menu = new ToolStripMenuItem("Tokenzeitraum");
+        foreach (var option in TokenPeriods.Available(identity, reading))
+        {
+            var item = Command(option.Label, () => choose(option.Key), TokenPeriods.Selected(identity) == option.Key);
+            item.Enabled = option.Enabled;
+            menu.DropDownItems.Add(item);
+        }
+        return menu;
+    }
+    private async Task SetTokenPeriod(Identity identity, string key)
+    {
+        try
+        {
+            identity = _preferences.Identities.Single(item => item.Key == identity.Key);
+            _preferences.SetConnection(identity, TokenPeriods.Options(identity, key));
+            await _monitor.Reproject(_preferences.Identities.Single(item => item.Key == identity.Key));
+            Paint();
+        }
+        catch (Exception) { MessageBox.Show(_view, "Tokenzeitraum konnte nicht übernommen werden.", "UseScope"); }
+    }
+    internal static NotifyIcon CreateTrayIcon(ContextMenuStrip menu) => new() { Text = "", Icon = Artwork.CreateIcon(), ContextMenuStrip = menu };
     private static void DisposeImages(ToolStripItem item)
     {
         if (item is ToolStripMenuItem child)
             foreach (ToolStripItem descendant in child.DropDownItems) DisposeImages(descendant);
         item.Image?.Dispose(); item.Image = null;
     }
-    private sealed class MenuPalette(Colors colors) : ProfessionalColorTable
+    private sealed class MenuRenderer(Colors colors) : ToolStripProfessionalRenderer(new MenuPalette(colors))
     {
+        protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+        {
+            if (SystemInformation.HighContrast) { base.OnRenderMenuItemBackground(e); return; }
+            var active = e.Item.Enabled && (e.Item.Selected || e.Item.Pressed);
+            using var fill = new SolidBrush(active ? colors.Track : colors.Surface);
+            e.Graphics.FillRectangle(fill, new Rectangle(Point.Empty, e.Item.Size));
+        }
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+        {
+            if (SystemInformation.HighContrast) { base.OnRenderItemText(e); return; }
+            TextRenderer.DrawText(e.Graphics, e.Text, e.TextFont, e.TextRectangle,
+                e.Item.Enabled ? colors.Ink : colors.Muted, e.TextFormat);
+        }
+        protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)
+        {
+            if (!SystemInformation.HighContrast) e.ArrowColor = e.Item?.Enabled == false ? colors.Muted : colors.Ink;
+            base.OnRenderArrow(e);
+        }
+    }
+    private sealed class MenuPalette : ProfessionalColorTable
+    {
+        private readonly Colors colors;
+        internal MenuPalette(Colors palette) { colors = palette; UseSystemColors = false; }
         public override Color ToolStripDropDownBackground => colors.Surface;
         public override Color MenuBorder => colors.Line;
         public override Color ImageMarginGradientBegin => colors.Surface;
         public override Color ImageMarginGradientMiddle => colors.Surface;
         public override Color ImageMarginGradientEnd => colors.Surface;
         public override Color MenuItemSelected => colors.Track;
+        public override Color MenuItemSelectedGradientBegin => colors.Track;
+        public override Color MenuItemSelectedGradientEnd => colors.Track;
+        public override Color MenuItemPressedGradientBegin => colors.Track;
+        public override Color MenuItemPressedGradientMiddle => colors.Track;
+        public override Color MenuItemPressedGradientEnd => colors.Track;
         public override Color MenuItemBorder => colors.Line;
         public override Color CheckBackground => colors.Track;
         public override Color CheckSelectedBackground => colors.Track;
+        public override Color CheckPressedBackground => colors.Track;
         public override Color SeparatorDark => colors.Line;
         public override Color SeparatorLight => colors.Surface;
     }
     private void Add()
     {
-        using var dialog = new Form { Text = "Konto hinzufügen", ClientSize = new Size(440, 266), StartPosition = FormStartPosition.CenterScreen, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false };
+        using var dialog = new Form { Text = "Konto hinzufügen", ClientSize = new Size(440, 310), StartPosition = FormStartPosition.CenterScreen, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false };
         var provider = new ComboBox { Left = 14, Top = 34, Width = 330, DropDownStyle = ComboBoxStyle.DropDownList };
         provider.Width = 410; provider.Items.AddRange(Providers.All.Select(item => item.Name).ToArray()); provider.SelectedIndex = 0;
         var hint = new Label { Left = 14, Top = 66, Width = 410, Height = 82, Text = Providers.All[0].Help };
-        provider.SelectedIndexChanged += (_, _) => hint.Text = Providers.All[provider.SelectedIndex].Help;
-        var name = new TextBox { Left = 14, Top = 174, Width = 410 };
-        var add = new Button { Text = "Hinzufügen", Left = 218, Top = 222, Width = 110, DialogResult = DialogResult.OK };
-        var cancel = new Button { Text = "Abbrechen", Left = 334, Top = 222, Width = 90, DialogResult = DialogResult.Cancel };
-        dialog.Controls.AddRange([new Label { Text = "Anbieter", Left = 14, Top = 12 }, provider, hint, new Label { Text = "Bezeichnung (optional, z. B. E-Mail oder Projekt)", Left = 14, Top = 152, Width = 410 }, name, add, cancel]);
+        var meter = new CheckBox { Text = "Lokaler API-Zähler (nur durchgeleitete Nutzung)", Left = 14, Top = 152, Width = 410 };
+        void SelectProvider() { var selected = Providers.All[provider.SelectedIndex]; hint.Text = selected.Help; meter.Checked = selected.Connection == ConnectionKind.LocalMeter; meter.Enabled = selected.Connection != ConnectionKind.LocalMeter && ProviderCatalog.AllowsMeter(selected); }
+        provider.SelectedIndexChanged += (_, _) => SelectProvider(); SelectProvider();
+        var name = new TextBox { Left = 14, Top = 212, Width = 410 };
+        var add = new Button { Text = "Hinzufügen", Left = 218, Top = 266, Width = 110, DialogResult = DialogResult.OK };
+        var cancel = new Button { Text = "Abbrechen", Left = 334, Top = 266, Width = 90, DialogResult = DialogResult.Cancel };
+        dialog.Controls.AddRange([new Label { Text = "Anbieter", Left = 14, Top = 12 }, provider, hint, meter, new Label { Text = "Bezeichnung (optional, z. B. E-Mail oder Projekt)", Left = 14, Top = 188, Width = 410 }, name, add, cancel]);
         dialog.AcceptButton = add; dialog.CancelButton = cancel;
         if (dialog.ShowDialog() != DialogResult.OK) return;
         try
@@ -172,20 +254,66 @@ internal sealed class DesktopApp : ApplicationContext
             var vendor = Providers.All[provider.SelectedIndex].Id;
             var title = string.IsNullOrWhiteSpace(name.Text) ? Artwork.VendorName(vendor) + " " + (_preferences.Identities.Count + 1) : name.Text.Trim();
             var identity = _preferences.Add(vendor, title);
+            if (meter.Checked) { _preferences.SetConnection(identity, MeterSetup.Options()); identity = _preferences.Identities.Single(item => item.Key == identity.Key); }
             Paint(); Login(identity);
         }
         catch (Exception) { MessageBox.Show("Konto konnte nicht hinzugefügt werden.", "UseScope"); }
+    }
+    private async Task ConfigureTokens(Identity identity)
+    {
+        using var picker = new FolderBrowserDialog { Description = "Claude-Code-Sitzungsordner nur für dieses Konto wählen (JSONL-Dateien)", UseDescriptionForTitle = true,
+            ShowNewFolderButton = false, SelectedPath = LocalTokenReader.DirectoryFor(identity) ?? "" };
+        if (picker.ShowDialog(_view) != DialogResult.OK) return;
+        try
+        {
+            var directory = LocalTokenReader.ValidateDirectory(picker.SelectedPath);
+            LocalTokenReader.EnsureExclusive(identity, _preferences.Identities, directory);
+            if (MessageBox.Show(_view, "JSONL-Dateien lokal auswerten? Es werden nur Token-Metadaten übernommen, keine Prompts oder Antworten gespeichert.\n\nDer Ordner muss ausschließlich Sitzungen dieses Kontos enthalten. UseScope kann die Kontozuordnung in diesen Dateien nicht automatisch überprüfen. Webnutzung und andere Geräte fehlen.\n\n" + directory,
+                "Tokenquelle · " + identity.Title, MessageBoxButtons.YesNo, MessageBoxIcon.Information, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+            await SetTokenDirectory(identity, directory);
+        }
+        catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException) { MessageBox.Show(_view, "Tokenquelle konnte nicht zugeordnet werden. Einen getrennten lokalen Sitzungsordner für dieses Konto wählen.", "UseScope"); }
+    }
+    private async Task SetTokenDirectory(Identity identity, string? directory)
+    {
+        var values = identity.ConnectionOptions?.DeepClone().AsObject() ?? new System.Text.Json.Nodes.JsonObject();
+        if (directory is null) { values.Remove("TokenLogDirectory"); values.Remove("TokenLogBinding"); }
+        else
+        {
+            if (_readings.GetValueOrDefault(identity.Key) is not { AccountBinding: string binding, Failed: false })
+            { MessageBox.Show(_view, "Bitte zuerst eine erfolgreiche Kontoverbindung herstellen und dann die Tokenquelle zuordnen.", "UseScope"); return; }
+            values["TokenLogDirectory"] = directory; values["TokenLogBinding"] = binding;
+        }
+        try
+        {
+            await _monitor.Authenticate(identity, _ => { _preferences.SetConnection(identity, values); return Task.CompletedTask; });
+            _readings.Remove(identity.Key); Paint(); await Poll(true, identity.Key);
+        }
+        catch (Exception) { MessageBox.Show(_view, "Tokenquelle konnte nicht gespeichert werden.", "UseScope"); }
     }
     private async void Login(Identity identity)
     {
         try
         {
+            if (MeterStorage.Enabled(identity)) { await ConnectMeter(identity); return; }
             if (Providers.Get(identity.Vendor).Connection == ConnectionKind.Portal) { OpenPortal(identity); await Poll(true, identity.Key); return; }
             if (Providers.Get(identity.Vendor).Connection == ConnectionKind.ApiKey) { await ConnectApi(identity); return; }
+            if (identity.Vendor == "gemini")
+            {
+                using var options = new GoogleOptionsDialog(identity);
+                if (options.ShowDialog() != DialogResult.OK) return;
+                _preferences.SetConnection(identity, options.Options());
+                identity = _preferences.Identities.Single(item => item.Key == identity.Key);
+            }
             Directory.CreateDirectory(identity.Profile);
-            var arguments = identity.Vendor == "claude" ? new[] { "auth", "login" }
-                : identity.Vendor == "codex" ? new[] { "-c", "cli_auth_credentials_store='file'", "login" }
-                : new[] { "auth", "add", "nous", "--type", "oauth" };
+            if (identity.Vendor is "alibaba-coding" or "alibaba-token")
+            {
+                using var site = new AlibabaSiteDialog(identity);
+                if (site.ShowDialog() != DialogResult.OK) return;
+                _preferences.SetConnection(identity, site.Options()); identity = _preferences.Identities.Single(item => item.Key == identity.Key);
+            }
+            var arguments = NativeConnections.Login(identity);
+            _readings.Remove(identity.Key); Paint();
             await _monitor.Authenticate(identity, async cancellation => {
                 using var process = Process.Start(Platform.Cli(identity.Vendor, identity.Profile, true, arguments))!;
                 try { await process.WaitForExitAsync(cancellation); if (process.ExitCode != 0) throw new IOException("Anmeldung nicht abgeschlossen."); }
@@ -201,12 +329,17 @@ internal sealed class DesktopApp : ApplicationContext
         if (MessageBox.Show($"{identity.Title} bei UseScope abmelden?", "UseScope", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
         try
         {
+            if (MeterStorage.Enabled(identity))
+            {
+                await _monitor.Authenticate(identity, token => MeterStorage.DeleteCredential(identity, token));
+                _readings.Remove(identity.Key); Paint(); await Poll(true, identity.Key); return;
+            }
             if (Providers.Get(identity.Vendor).Connection == ConnectionKind.ApiKey)
             {
                 await _monitor.Authenticate(identity, token => SecretVault.Delete(identity, token));
                 _readings.Remove(identity.Key); Paint(); await Poll(true, identity.Key); return;
             }
-            var arguments = identity.Vendor == "claude" ? new[] { "auth", "logout" } : identity.Vendor == "codex" ? new[] { "-c", "cli_auth_credentials_store='file'", "logout" } : new[] { "auth", "logout", "nous" };
+            var arguments = NativeConnections.Logout(identity.Vendor);
             await _monitor.Authenticate(identity, async cancellation => {
                 using var process = Process.Start(Platform.Cli(identity.Vendor, identity.Profile, false, arguments))!;
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
@@ -228,47 +361,69 @@ internal sealed class DesktopApp : ApplicationContext
     }
     private async Task ConnectApi(Identity identity)
     {
-        var provider = Providers.Get(identity.Vendor);
-        using var dialog = new Form { Text = provider.Name, ClientSize = new Size(480, 252), StartPosition = FormStartPosition.CenterScreen,
-            FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false };
-        var explanation = new Label { Left = 14, Top = 12, Width = 450, Height = 72, Text = provider.Help };
-        var portal = new Button { Text = "Schlüssel im Anbieterportal erstellen…", Left = 14, Top = 88, Width = 300 };
-        portal.Click += (_, _) => OpenPortal(identity);
-        var key = new TextBox { Left = 14, Top = 146, Width = 450, UseSystemPasswordChar = true, MaxLength = 4096 };
-        var team = new TextBox { Left = 14, Top = 202, Width = 450, PlaceholderText = "Team-ID (UUID) aus der xAI-Konsole", Visible = identity.Vendor == "xai" };
-        var save = new Button { Text = "Speichern", Left = 254, Top = 210, Width = 100, DialogResult = DialogResult.OK };
-        var cancel = new Button { Text = "Abbrechen", Left = 364, Top = 210, Width = 100, DialogResult = DialogResult.Cancel };
-        dialog.Controls.AddRange([explanation, portal, new Label { Left = 14, Top = 124, Text = "API-Schlüssel", Width = 450 }, key,
-            new Label { Left = 14, Top = 178, Width = 450, Height = 28, Text = "Lokal für deinen Windows-Benutzer verschlüsselt gespeichert." }, save, cancel]);
-        dialog.AcceptButton = save; dialog.CancelButton = cancel;
-        if (identity.Vendor == "xai")
-        {
-            dialog.ClientSize = new Size(480, 308); save.Top += 56; cancel.Top += 56;
-            foreach (var label in dialog.Controls.OfType<Label>().Where(label => label.Top == 178)) label.Top += 56;
-            dialog.Controls.Add(new Label { Left = 14, Top = 180, Width = 450, Text = "Team-ID" }); dialog.Controls.Add(team);
-        }
+        using var dialog = new ApiCredentialDialog(Providers.Get(identity.Vendor));
         if (dialog.ShowDialog() != DialogResult.OK) return;
         try
         {
-            var secret = ApiAccountSource.EncodeCredential(identity.Vendor, key.Text, team.Text); key.Clear();
+            var secret = dialog.Encode(identity.Vendor);
             await _monitor.Authenticate(identity, token => SecretVault.Write(identity, secret, token));
             _readings.Remove(identity.Key); Paint(); await Poll(true, identity.Key);
         }
         catch (ArgumentException exception) { MessageBox.Show(exception.Message, "UseScope"); }
-        catch (Exception) { MessageBox.Show("API-Schlüssel konnte nicht geschützt gespeichert werden.", "UseScope"); }
-        finally { key.Clear(); }
+        catch (Exception) { MessageBox.Show("Zugang konnte nicht geschützt gespeichert werden.", "UseScope"); }
+    }
+    private async Task ConnectMeter(Identity identity)
+    {
+        try
+        {
+            using var dialog = new ApiCredentialDialog(Providers.Get(identity.Vendor), true);
+            if (dialog.ShowDialog() != DialogResult.OK) return;
+            var old = await MeterStorage.ReadCredential(identity, default);
+            var credential = dialog.Meter(old?.LocalToken);
+            MeterRuntime.Shared.Update(_preferences.Identities); await MeterRuntime.Shared.EnsureStarted();
+            await _monitor.Authenticate(identity, token => MeterStorage.WriteCredential(identity, credential, token));
+            _readings.Remove(identity.Key); Paint(); await Poll(true, identity.Key); await ShowMeterClient(identity);
+        }
+        catch (ArgumentException error) { MessageBox.Show(error.Message, "UseScope"); }
+        catch (Exception) { MessageBox.Show("API-Zähler konnte nicht eingerichtet werden. Geschützten Speicher und lokalen Port 48371 prüfen.", "UseScope"); }
+    }
+    private async Task ShowMeterClient(Identity identity)
+    {
+        try
+        {
+            var credential = await MeterStorage.ReadCredential(identity, default);
+            if (credential is null) { MessageBox.Show("Bitte zuerst den API-Zähler einrichten.", "UseScope"); return; }
+            using var dialog = new Form { Text = "UseScope · API-Client einrichten", ClientSize = new Size(550, 290), StartPosition = FormStartPosition.CenterScreen };
+            var url = LoopbackMeterServer.ClientUrl(identity);
+            var address = new TextBox { Left = 14, Top = 76, Width = 520, ReadOnly = true, Text = url };
+            var key = new TextBox { Left = 14, Top = 116, Width = 520, ReadOnly = true, Text = credential.LocalToken, UseSystemPasswordChar = true };
+            var copyUrl = new Button { Text = "Adresse kopieren", Left = 14, Top = 158, Width = 180 };
+            var copyKey = new Button { Text = "Lokalen Schlüssel kopieren", Left = 202, Top = 158, Width = 220 };
+            copyUrl.Click += (_, _) => { try { Clipboard.SetText(url); } catch { MessageBox.Show("Zwischenablage derzeit nicht verfügbar."); } };
+            copyKey.Click += (_, _) => { try { Clipboard.SetText(credential.LocalToken); } catch { MessageBox.Show("Zwischenablage derzeit nicht verfügbar."); } };
+            dialog.Controls.AddRange([new Label { Text = "Im KI-Client die API-Basisadresse und diesen lokalen Schlüssel eintragen. Bei Gemini die Adresse bis einschließlich /v1 durch /v1beta ersetzen; das Client-Protokoll bleibt gleich.", Left = 14, Top = 14, Width = 520, Height = 54 }, address, key, copyUrl, copyKey,
+                new Label { Text = "UseScope muss laufen. Für Streaming nach Möglichkeit usage / include_usage im Client aktivieren. Nur hierüber geleitete Nutzung wird gezählt. Der lokale Schlüssel erlaubt kostenpflichtige Anfragen bei deinem Anbieter; vertraulich behandeln.", Left = 14, Top = 206, Width = 520, Height = 66 }]);
+            dialog.ShowDialog(); key.Clear();
+        }
+        catch (Exception) { MessageBox.Show("Zähler-Konfiguration konnte nicht gelesen werden.", "UseScope"); }
+    }
+    private async Task CheckMeter(Identity identity)
+    {
+        try { MessageBox.Show(await MeterRuntime.Shared.CheckConnection(identity), "UseScope · Verbindungstest"); }
+        catch (Exception) { MessageBox.Show("Verbindungstest nicht möglich. UseScope-Port und Internetverbindung prüfen.", "UseScope"); }
     }
     private async void Remove(Identity identity)
     {
-        var api = Providers.Get(identity.Vendor).Connection == ConnectionKind.ApiKey;
+        var meter = MeterStorage.Enabled(identity); var api = meter || Providers.Get(identity.Vendor).Connection == ConnectionKind.ApiKey;
         if (MessageBox.Show($"{identity.Title} aus der Anzeige entfernen?\n\n" + (api ? "Der lokal für UseScope gespeicherte API-Schlüssel wird gelöscht. Beim Anbieter wird er dadurch nicht widerrufen." : "Das Konto beim Anbieter und die lokale CLI-Anmeldung bleiben erhalten."), "UseScope", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
-        if (api) try { await _monitor.Authenticate(identity, token => SecretVault.Delete(identity, token)); }
+        if (api) try { await _monitor.Authenticate(identity, token => meter ? MeterStorage.DeleteCredential(identity, token) : SecretVault.Delete(identity, token)); }
             catch (Exception) { MessageBox.Show("Der lokale API-Schlüssel konnte nicht gelöscht werden. Der Eintrag bleibt bestehen.", "UseScope"); return; }
         Change(() => _preferences.Remove(identity)); _readings.Remove(identity.Key); Paint();
     }
     protected override void ExitThreadCore()
     {
-        _closing = true; _clock.Stop(); _clock.Dispose(); _monitor.Dispose(); _shortcut.Dispose();
+        _closing = true; _clock.Stop(); _clock.Dispose(); _shell.Dispose(); _monitor.Dispose(); _shortcut.Dispose();
+        Task.Run(async () => await MeterRuntime.Shared.DisposeAsync()).GetAwaiter().GetResult();
         _tray.Visible = false; _tray.Icon?.Dispose(); _tray.Dispose(); _menu.Dispose(); _view.Dispose();
         base.ExitThreadCore();
     }

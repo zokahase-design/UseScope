@@ -33,6 +33,12 @@ Run-Hidden -Executable (Join-Path $application 'runtime\UseScope.exe') -Argument
 $firstReport = Join-Path $smokeRoot 'target-first.txt'
 Run-Hidden -Executable (Join-Path $application 'UseScope starten.exe') -Arguments @('--check-target', ('"' + $firstReport + '"'))
 if ([IO.File]::ReadAllText($firstReport) -ne (Join-Path $application 'runtime\UseScope.exe')) { throw 'Starter löst das Programmziel falsch auf.' }
+$installedTools = Join-Path $application 'tools'
+New-Item -ItemType Directory -Path $installedTools | Out-Null
+Copy-Item -LiteralPath (Join-Path $artifacts 'installed-launcher\UseScope starten.exe') -Destination $installedTools
+$installedReport = Join-Path $smokeRoot 'target-installed.txt'
+Run-Hidden -Executable (Join-Path $installedTools 'UseScope starten.exe') -Arguments @('--check-target', ('"' + $installedReport + '"'))
+if ([IO.File]::ReadAllText($installedReport) -ne (Join-Path $application 'runtime\UseScope.exe')) { throw 'Installierter Starter löst das Programmziel falsch auf.' }
 
 $movedParent = Join-Path $smokeRoot 'anderer Ordner mit Leerzeichen und ü'
 New-Item -ItemType Directory -Path $movedParent | Out-Null
@@ -43,6 +49,9 @@ Move-Item -LiteralPath $resolvedApplication -Destination $moved
 $secondReport = Join-Path $smokeRoot 'target-relocated.txt'
 Run-Hidden -Executable (Join-Path $moved 'UseScope starten.exe') -Arguments @('--check-target', ('"' + $secondReport + '"'))
 if ([IO.File]::ReadAllText($secondReport) -ne (Join-Path $moved 'runtime\UseScope.exe')) { throw 'Starter ist nicht portabel.' }
+$installedMovedReport = Join-Path $smokeRoot 'target-installed-relocated.txt'
+Run-Hidden -Executable (Join-Path $moved 'tools\UseScope starten.exe') -Arguments @('--check-target', ('"' + $installedMovedReport + '"'))
+if ([IO.File]::ReadAllText($installedMovedReport) -ne (Join-Path $moved 'runtime\UseScope.exe')) { throw 'Installierter Starter folgt dem verschobenen Programmordner nicht.' }
 
 # Exercise the launcher's actual start path with a non-UI test payload. Never
 # start the real interactive application as part of the package verification.
@@ -57,11 +66,22 @@ $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $fixtureExecutable = Join-Path $moved 'runtime\UseScope.exe'
 & $compiler /nologo /target:winexe /platform:anycpu /debug- "/out:$fixtureExecutable" $fixture
 if ($LASTEXITCODE -ne 0) { throw 'Testprogramm konnte nicht erstellt werden.' }
-Run-Hidden -Executable (Join-Path $moved 'UseScope starten.exe') -Arguments @()
-$marker = Join-Path $moved 'runtime\launcher-smoke.ok'
-$deadline = [DateTime]::UtcNow.AddSeconds(10)
-while (-not (Test-Path -LiteralPath $marker) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
-if (-not (Test-Path -LiteralPath $marker)) { throw 'Starter hat den Testprozess nicht im richtigen Arbeitsordner ausgeführt.' }
+$actualLaunchChecked = $false
+$launchDeferredReason = $null
+if (@(Get-Process -Name UseScope -ErrorAction SilentlyContinue).Count -gt 0) {
+    $launchDeferredReason = 'Laufende Nutzer-App bleibt unangetastet; Kollisionsschutz des Starters bleibt aktiv.'
+} else {
+    foreach ($starter in @((Join-Path $moved 'UseScope starten.exe'), (Join-Path $moved 'tools\UseScope starten.exe'))) {
+        $marker = Join-Path $moved 'runtime\launcher-smoke.ok'
+        if (Test-Path -LiteralPath $marker) { Remove-Item -LiteralPath $marker }
+        Run-Hidden -Executable $starter -Arguments @()
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        while (-not (Test-Path -LiteralPath $marker) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
+        if (-not (Test-Path -LiteralPath $marker)) { throw 'Starter hat den Testprozess nicht im richtigen Arbeitsordner ausgeführt.' }
+        while (@(Get-Process -Name UseScope -ErrorAction SilentlyContinue).Count -gt 0 -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }
+    }
+    $actualLaunchChecked = $true
+}
 [ordered]@{
     Passed = $true
     ArchiveHash = $true
@@ -69,8 +89,11 @@ if (-not (Test-Path -LiteralPath $marker)) { throw 'Starter hat den Testprozess 
     RootContainsOnlyStarterAndDirectories = $true
     OfflineApplicationChecks = $true
     RelativeTargetResolution = $true
+    InstalledStarterTargetResolution = $true
+    InstalledStarterRelocation = $true
     RelocationWithSpacesAndUnicode = $true
-    ActualLaunchWithNonUiFixture = $true
+    ActualLaunchWithNonUiFixture = $actualLaunchChecked
+    ActualLaunchDeferredReason = $launchDeferredReason
     RealInteractiveApplicationStarted = $false
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $artifacts 'package-test.json') -Encoding utf8
 Write-Output 'Paket, Prüfsummen und portabler Starter erfolgreich geprüft. Kein sichtbares Widget gestartet.'

@@ -41,13 +41,7 @@ internal static class Artwork
     }
     internal static string Badge(string vendor) => Providers.Get(vendor).Badge;
     internal static string VendorName(string vendor) => Providers.Get(vendor).Name;
-    internal static string Countdown(DateTimeOffset? reset)
-    {
-        if (reset is null) return "—";
-        var remaining = reset.Value - DateTimeOffset.Now;
-        if (remaining <= TimeSpan.Zero) return "jetzt";
-        return (remaining.Days > 0 ? $"{remaining.Days}d " : "") + $"{remaining.Hours}h {remaining.Minutes}m";
-    }
+    internal static string Countdown(DateTimeOffset? reset) => ReadingPresentation.Countdown(reset);
     internal static void Text(Graphics graphics, string value, Rectangle box, Color color, Font font, bool right = false)
         => TextRenderer.DrawText(graphics, value, font, box, color,
             TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding

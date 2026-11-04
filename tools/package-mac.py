@@ -6,6 +6,8 @@ import plistlib
 import shutil
 import stat
 import struct
+import subprocess
+import sys
 import uuid
 import xml.etree.ElementTree as ET
 import zipfile
@@ -50,6 +52,8 @@ for source, destination in [('LICENSE', 'LICENSE.txt'), ('THIRD_PARTY_NOTICES.md
     shutil.copyfile(root / source, docs / destination)
 for source in (root / 'docs' / 'licenses').glob('*.txt'):
     shutil.copyfile(source, licenses / source.name)
+for name in ['API_METER.md', 'PROVIDER_MATRIX.md', 'TOKENS.md', 'provider-catalog.json']:
+    shutil.copyfile(root / 'docs' / name, docs / name)
 
 assets = json.loads((root / 'mac' / 'obj' / 'project.assets.json').read_text(encoding='utf-8-sig'))
 package_roots = [Path(path) for path in assets['packageFolders']]
@@ -97,6 +101,8 @@ for path in sorted(stage.rglob('*')):
         manifest.append({'Path': path.relative_to(stage).as_posix(), 'Bytes': path.stat().st_size,
                          'SHA256': hashlib.sha256(path.read_bytes()).hexdigest()})
 (docs / 'manifest.json').write_text(json.dumps({'Version': version, 'Files': manifest}, indent=2), encoding='utf-8')
+subprocess.run([sys.executable, str(root / 'tools' / 'privacy-audit.py'), '--root', str(stage),
+                '--report', str(root / 'artifacts' / ('mac-privacy-' + rid + '.json'))], check=True)
 dist = root / 'dist'
 dist.mkdir(exist_ok=True)
 archive = dist / f'UseScope-{version}-{rid}-preview.zip'

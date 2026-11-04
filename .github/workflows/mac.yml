@@ -10,7 +10,15 @@ permissions:
 
 jobs:
   mac:
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            rid: osx-arm64
+          - runner: macos-15-intel
+            rid: osx-x64
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -19,13 +27,14 @@ jobs:
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: 10.0.401
-      - name: Build shared checks, virtual UI and both Mac packages
+      - name: Build shared checks, virtual UI and native Mac package
         shell: pwsh
-        run: ./tools/build-mac.ps1 -Python python3
+        run: ./tools/build-mac.ps1 -Python python3 -Architectures '${{ matrix.rid }}'
       - name: Run native offline checks without accounts or visible UI
         shell: pwsh
         run: |
           $rid = if ([Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq 'Arm64') { 'osx-arm64' } else { 'osx-x64' }
+          if ($rid -ne '${{ matrix.rid }}') { throw 'Runner architecture does not match release artifact' }
           $archive = Get-ChildItem "dist/*-$rid-preview.zip" | Select-Object -First 1
           /usr/bin/ditto -x -k $archive.FullName artifacts/native-mac
           if ($LASTEXITCODE -ne 0) { throw 'Unzip failed' }
@@ -36,12 +45,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Native macOS checks failed' }
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: UseScope-macOS-preview
+          name: UseScope-macOS-preview-${{ matrix.runner }}
           path: |
             dist/*-osx-*-preview.zip
             dist/*-osx-*-preview.zip.sha256
             artifacts/mac-verification/
             artifacts/native-mac-checks/
             artifacts/mac-package-test-*.json
+            artifacts/mac-privacy-*.json
           if-no-files-found: error
           retention-days: 14

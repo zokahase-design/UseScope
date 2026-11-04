@@ -13,6 +13,10 @@ Kontenansicht; die Mac-Kontoverwaltung steht in einem eigenen Fenster zur Verfü
 
 ## Aktueller Prüfstand
 
+GitHub-CI verwendet getrennte Apple-Silicon- und Intel-Runner, baut je Runner
+das passende Paket und führt dessen Offlineprüfung auf dieser Architektur aus.
+Eine erfolgreiche CI-Prüfung ist keine interaktive Anmeldung oder Benutzerabnahme.
+
 Die Mac-Version ist als **Vorschau** vorbereitet. Gemeinsame Datenlogik,
 Anbieter-Mapping, virtuelle UI-Darstellung und Paketstruktur werden automatisiert
 geprüft. Eine echte Abnahme von Menüleiste, Fenstern, Anmeldung, Schlüsselbund und

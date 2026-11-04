@@ -43,7 +43,7 @@ internal sealed class ApiAccountSource : IAccountSource
             };
         }
         catch (RemoteFailure failure) when (failure.Authentication)
-        { throw new RemoteFailure("API-Schlüssel oder Berechtigung prüfen", authentication: true); }
+        { throw new RemoteFailure("API-Schlüssel oder Berechtigung prüfen", authentication: true, httpStatus: failure.HttpStatus); }
     }
     internal static string EncodeCredential(string vendor, string key, string team)
     {
@@ -99,7 +99,7 @@ internal sealed class ApiAccountSource : IAccountSource
         var query = "?start_time=" + start.ToUnixTimeSeconds() + "&end_time=" + now.ToUnixTimeSeconds() + "&bucket_width=1d&limit=31";
         var usage = await Pages("https://api.openai.com/v1/organization/usage/completions" + query, key, cancellation);
         var costs = await Pages("https://api.openai.com/v1/organization/costs" + query, key, cancellation);
-        return ParseOpenAi(identity, usage, costs, start);
+        return ParseOpenAi(identity, usage, costs, start, now);
     }
     private async Task<JsonArray> Pages(string url, string key, CancellationToken cancellation)
     {
@@ -116,7 +116,7 @@ internal sealed class ApiAccountSource : IAccountSource
         }
         throw new InvalidDataException("Abrechnungsabfrage unvollständig.");
     }
-    internal static Reading ParseOpenAi(Identity identity, JsonArray usage, JsonArray costs, DateTimeOffset start)
+    internal static Reading ParseOpenAi(Identity identity, JsonArray usage, JsonArray costs, DateTimeOffset start, DateTimeOffset? end = null)
     {
         long input = 0, output = 0; var totals = new Dictionary<string, decimal>();
         long Tokens(JsonNode? node) => node is JsonValue number && number.TryGetValue<long>(out var value) && value >= 0 ? value : throw new InvalidDataException("Ungültige Tokenzahl.");
@@ -140,7 +140,8 @@ internal sealed class ApiAccountSource : IAccountSource
         var cost = totals.Count == 0 ? "keine gemeldeten Kosten" : string.Join(" · ", totals.Select(item => item.Value.ToString("N2", German) + " " + item.Key));
         return new(identity.Key, [], null, "API verbunden · Organisation", DateTimeOffset.Now,
             Detail: "Monat " + cost + " · " + checked(input + output).ToString("N0", German) + " Text-Token\nText-Input " + input.ToString("N0", German) + " Token · Output " + output.ToString("N0", German)
-                + " Token\nOrganisation · seit " + start.ToString("dd.MM.yyyy") + " UTC; Anbieter-Verzögerung möglich.\nKosten: alle API-Kosten. Token: Text-/Completion-Nutzung, keine vollständige Bild-, Video- oder Audiozählung. Kein Guthaben.");
+                + " Token\nOrganisation · seit " + start.ToString("dd.MM.yyyy") + " UTC; Anbieter-Verzögerung möglich.\nKosten: alle API-Kosten. Token: Text-/Completion-Nutzung, keine vollständige Bild-, Video- oder Audiozählung. Kein Guthaben.",
+            Tokens: new(checked(input + output), start, end ?? DateTimeOffset.UtcNow, "OpenAI-Organisation · nur Text-/Completion-API; weitere Produktarten können fehlen. Keine Codex-/ChatGPT-Abos; Anbieter-Verzögerung möglich.", input, output, Partial: true));
     }
     public void Dispose() => _transport.Dispose();
 }

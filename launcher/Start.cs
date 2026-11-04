@@ -10,6 +10,9 @@ internal static class Start
     private static int Main(string[] args)
     {
         string root = AppDomain.CurrentDomain.BaseDirectory;
+#if INSTALLED_STARTER
+        root = Path.GetFullPath(Path.Combine(root, ".."));
+#endif
         string directory = Path.Combine(root, "runtime");
         string executable = Path.Combine(directory, "UseScope.exe");
         if (args.Length == 2 && args[0] == "--check-target")
@@ -24,6 +27,17 @@ internal static class Start
         }
         try
         {
+            foreach (Process existing in Process.GetProcessesByName("UseScope"))
+            {
+                using (existing)
+                {
+                    string running;
+                    try { running = existing.MainModule.FileName; } catch (Exception) { continue; }
+                    if (String.Equals(Path.GetFullPath(running), Path.GetFullPath(executable), StringComparison.OrdinalIgnoreCase)) continue;
+                    MessageBox.Show("Es läuft noch eine UseScope-Version aus einem anderen Ordner. Bitte diese zuerst über ihr Tray-Menü beenden und dann UseScope erneut starten.", "UseScope", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return 2;
+                }
+            }
             ProcessStartInfo launch = new ProcessStartInfo(executable);
             launch.WorkingDirectory = directory;
             launch.UseShellExecute = false;
