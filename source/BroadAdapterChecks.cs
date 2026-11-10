@@ -13,7 +13,7 @@ internal static class BroadAdapterChecks
         var usage = JsonNode.Parse("[{\"usage\":{\"uncached_input_tokens\":20,\"cache_read_input_tokens\":30,\"cache_creation\":{\"ephemeral_1h_input_tokens\":5,\"ephemeral_5m_input_tokens\":5},\"output_tokens\":40,\"total_tokens\":100}}]")!.AsArray();
         var cost = JsonNode.Parse("[{\"cost\":{\"currency\":\"USD\",\"amount\":\"250.123456\"}}]")!.AsArray();
         var report = AnthropicAnalyticsSource.Parse(account, usage, cost, snapshot.AddDays(-2), snapshot, snapshot, snapshot);
-        check(report.Balance is null && report.Detail!.Contains("2,50 USD") && report.Detail.Contains("100 Token") && report.Detail.Contains("Input inkl. Cache: 60"), "Anthropic analytics cents and cache tokens counted once");
+        check(report.Balance is null && report.Detail!.Contains("2,50 USD") && report.Tokens is { Total: 100, Input: 60 } && !report.Detail.Contains("Token"), "Anthropic analytics cents and cache tokens counted once");
         check(AnthropicAnalyticsSource.Parse(account, [], [], snapshot, snapshot, null, null).Observed is null, "Empty Anthropic analytics never invents freshness");
         var invalid = false;
         try { AnthropicAnalyticsSource.Parse(account, usage, cost, snapshot, snapshot, null, snapshot); } catch (InvalidDataException) { invalid = true; }

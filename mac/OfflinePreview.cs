@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Headless;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 
 namespace UseScope.Desktop;
 
@@ -34,6 +35,9 @@ internal static class OfflinePreview
                 widget.Add += () => addRequests++; widget.Pin += () => pinRequests++;
                 widget.AddButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
                 if (addRequests != 1 || pinRequests != 0) throw new InvalidOperationException("Plus-Schaltfläche startet den falschen Vorgang.");
+                var meterLines = widget.GetVisualDescendants().OfType<MeterLine>().ToArray();
+                if (meterLines.Length != 2 || meterLines.Any(line => line.Bounds.Width < 350))
+                    throw new InvalidOperationException("Limitbalken nutzen die Kontozeile nicht in voller Breite.");
                 using var image = widget.CaptureRenderedFrame() ?? throw new InvalidOperationException("Kein virtuelles Bild erzeugt.");
                 image.Save(Path.Combine(destination, "mac-" + theme + ".png"));
                 preferences.ShowRemainingQuota = true; widget.Update(); Dispatcher.UIThread.RunJobs();
@@ -42,7 +46,7 @@ internal static class OfflinePreview
                 preferences.ShowRemainingQuota = false;
                 widget.Close(); widget.DisposeImages();
             }
-            File.WriteAllText(Path.Combine(destination, "mac-widget-checks.json"), "{\"Passed\":true,\"AddActionBothThemes\":true,\"NativeWindowStarted\":false}");
+            File.WriteAllText(Path.Combine(destination, "mac-widget-checks.json"), "{\"Passed\":true,\"AddActionBothThemes\":true,\"FullWidthQuotaBothThemes\":true,\"NativeWindowStarted\":false}");
             return 0;
         }
         finally { foreach (var file in Directory.EnumerateFiles(root)) File.Delete(file); Directory.Delete(root); }

@@ -82,16 +82,15 @@ internal sealed class LocalMeterSource(MeterLedger ledger) : IAccountSource, ILo
         if (MeterRuntime.Shared.Failure is string error) return new(identity.Key, [], null, error, null, true);
         if (await MeterStorage.ReadCredential(identity, cancellation) is null) return new(identity.Key, [], null, "Lokalen API-Zähler einrichten", null, true);
         var now = DateTimeOffset.UtcNow; var start = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero); var value = await ledger.Read(identity, start, cancellation);
-        var tokens = value.Total is long count ? count.ToString("N0", ApiAccountSource.German) + " gemeldete Token" : "Token nicht gemeldet";
         var failed = ledger.HasRecordingFailure(identity);
         IReadOnlyList<Period> periods = value.Quota is { Limit: > 0, Remaining: >= 0 } quota && quota.Remaining <= quota.Limit && quota.Reset > now
             ? [new("IFM-Tag", 100.0 * (quota.Limit - quota.Remaining) / quota.Limit, quota.Reset)] : [];
         var reading = new Reading(identity.Key, periods, null, failed ? "Zähler unvollständig · Schreibfehler seit App-Start" : "Lokaler API-Zähler · nur durchgeleitete Anfragen", value.Last, failed,
-            Detail: "UTC-Monat · " + value.Requests.ToString("N0", ApiAccountSource.German) + " Anfragen · " + tokens
-                + "\nErfolgreich abgeschlossen: " + value.Successful + " · Ohne Tokenmeldung: " + value.UnknownTokenRequests
+            Detail: "UTC-Monat · " + value.Requests.ToString("N0", ApiAccountSource.German) + " Anfragen"
+                + "\nErfolgreich abgeschlossen: " + value.Successful
                 + "\n" + (value.Cost is decimal amount && value.Currency is string currency ? "Gemeldete Kosten: " + MeterData.Money(amount, currency) : "Kosten nicht vom Anbieter gemeldet; keine Schätzung.")
                 + (periods.Count > 0 ? "\nIFM-Tagesfenster aus zuletzt gemeldeten Rate-Limit-Headern, Reset 00:00 UTC. Keine regelmäßige Gesamtkontoabfrage." : "")
-                + "\nKeine Kontogesamtsumme, kein Abo-Restlimit und kein Guthaben. Fremde Apps, alte Verbräuche und abgebrochene Streams können außerhalb der Tokenmessung liegen.", DetailContainsBalance: value.Cost is not null,
+                + "\nKeine Kontogesamtsumme, kein Abo-Restlimit und kein Guthaben. Fremde Apps, alte Verbräuche und abgebrochene Streams können außerhalb der Messung liegen.", DetailContainsBalance: value.Cost is not null,
             Tokens: TokenCounter(value, start, now, failed));
         return await ProjectTokens(identity, reading, cancellation);
     }

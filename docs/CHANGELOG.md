@@ -1,5 +1,15 @@
 # Änderungen
 
+## 2.6.2 — breitere Limitbalken
+
+- Breitere Limitbalken bei gleicher Widget-Größe unter Windows und macOS.
+- Tokenzahlen und Zeitraumwahl aus Widget und Kontomenüs entfernt. Das optionale lokale API-Journal und vorhandene Kontoeinstellungen bleiben erhalten. Früher verknüpfte Claude-Verläufe lassen sich weiterhin im Kontomenü trennen.
+
+## 2.6.1 — Windows-Widget nach vorne holen
+
+- Ein verdecktes Widget mit offenem Schloss lässt sich per Tray-Klick, Tastenkürzel oder **Widget nach vorne holen** wieder anzeigen. **Widget ausblenden** ist eine eigene Aktion.
+- Das Fenster wartet mit dem Anheben, bis offene Tray-Menüs geschlossen sind.
+
 ## 2.6.0 — geordnetes Tray-Menü und Veröffentlichungsvorbereitung
 
 - Tray-Menü nach Schnellaktionen, Konten, Darstellung und Programmende gegliedert. Konto-Untermenüs gruppieren Werte/Aktualisierung, Anzeige/Tokenquelle, Verbindung und Verwaltung. Der doppelte Portalaufruf entfällt.

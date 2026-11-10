@@ -22,6 +22,13 @@ internal sealed class LocalTokenReader
         return subject is null ? null : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(subject + "|" + JsonData.Text(metadata?["organizationUuid"]))));
     }
     internal static string? DirectoryFor(Identity account) => account.Vendor == "claude" ? JsonData.Text(account.ConnectionOptions?["TokenLogDirectory"]) : null;
+    internal static JsonObject WithoutDirectory(Identity account)
+    {
+        var options = account.ConnectionOptions?.DeepClone().AsObject() ?? new JsonObject();
+        options.Remove("TokenLogDirectory");
+        options.Remove("TokenLogBinding");
+        return options;
+    }
     internal static string ValidateDirectory(string path)
     {
         var root = Path.GetFullPath(path);

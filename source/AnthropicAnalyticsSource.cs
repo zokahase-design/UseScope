@@ -62,12 +62,10 @@ internal sealed class AnthropicAnalyticsSource : IAccountSource
             cents = checked(cents + MeterData.Decimal(cost["amount"]));
         }
         var costText = costs.Count == 0 ? "keine gemeldeten Kosten" : MeterData.Money(cents / 100m, "USD");
-        var tokenText = usage.Count == 0 ? "keine gemeldeten Token" : tokens.ToString("N0", ApiAccountSource.German) + " Token";
         var observed = usageFresh is null ? costFresh : costFresh is null ? usageFresh : usageFresh < costFresh ? usageFresh : costFresh;
-        var details = "Monat " + costText + " · " + tokenText + "\nOrganisation · " + start.ToString("dd.MM.") + " bis " + end.ToString("dd.MM. HH:mm") + " UTC (abgeschlossene Stunden)"
-            + "\nInput inkl. Cache: " + input.ToString("N0", ApiAccountSource.German) + " · Output: " + output.ToString("N0", ApiAccountSource.German)
+        var details = "Monat " + costText + "\nOrganisation · " + start.ToString("dd.MM.") + " bis " + end.ToString("dd.MM. HH:mm") + " UTC (abgeschlossene Stunden)"
             + "\nKosten nach Rabatten, vor Credits; Priority-Vertragsgebühren fehlen. Daten können bis zu 24 h verzögert und später korrigiert sein. Kein Abo-Guthaben."
-            + "\nTokenstand: " + (usageFresh?.ToString("u") ?? "nicht gemeldet") + " · Kostenstand: " + (costFresh?.ToString("u") ?? "nicht gemeldet");
+            + "\nKostenstand: " + (costFresh?.ToString("u") ?? "nicht gemeldet");
         return new(identity.Key, [], null, observed is null ? "Analytics · noch keine Daten" : "API verbunden · Organisationsbericht", observed, Detail: details,
             Tokens: usageFresh is null || usageFresh < start ? null : new(tokens, start, end, "Anthropic-Organisation · API, Input einschließlich Cache; abgeschlossene UTC-Stunden, bis zu 24 h verzögert. Kein Claude-Abo.", input, output, Partial: usageFresh < end));
     }

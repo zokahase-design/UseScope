@@ -17,8 +17,8 @@ internal sealed class Dashboard : Form
     private Rectangle OrderButton => new(ClientSize.Width - 62, 2, 28, 23);
     private Rectangle PinButton => new(ClientSize.Width - 30, 2, 24, 23);
     internal event Action? PinRequested, OrderChanged, AddRequested;
-    internal event Action<string>? TokenSourceRequested;
     protected override bool ShowWithoutActivation => true;
+    internal bool IsInForeground => IsHandleCreated && GetForegroundWindow() == Handle;
     internal Dashboard(Preferences preferences)
     {
         _preferences = preferences;
@@ -52,6 +52,16 @@ internal sealed class Dashboard : Form
         var desired = _preferences.Pinned && !_menuActive && !_shellOverlayActive;
         // Reapplying an unchanged TopMost value can reorder the widget above the Windows tray flyout.
         if (TopMost != desired) TopMost = desired;
+    }
+    internal void RaiseForUser()
+    {
+        if (_menuActive || _shellOverlayActive || !Visible) return;
+        Activate();
+        if (TopMost) return;
+
+        // Keep the one-time raise separate from the persistent pin preference.
+        const uint noSize = 0x0001, noMove = 0x0002, noActivate = 0x0010, noOwnerZOrder = 0x0200;
+        SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0, noSize | noMove | noActivate | noOwnerZOrder);
     }
     internal void Render(IReadOnlyDictionary<string, Reading> readings)
     {
@@ -121,9 +131,7 @@ internal sealed class Dashboard : Form
             if (reading?.Periods.Count > 0)
                 for (var index = 0; index < reading.Periods.Count; index++)
                     Meter(g, reading.Periods[index], index % 2, y + 18 + index / 2 * 17, palette, numbers, small, reading.Failed);
-            else Artwork.Text(g, ReadingPresentation.Summary(identity, reading), new Rectangle(16, y + 18, Math.Max(1, Width - 128), 17), palette.Muted, small);
-            Artwork.Text(g, ReadingPresentation.TokenLabel(identity, reading), new Rectangle(Width - 100, y + 18, 88, 17),
-                reading?.Tokens is not null && !reading.Failed ? palette.Ink : palette.Muted, numbers, true);
+            else Artwork.Text(g, ReadingPresentation.Summary(identity, reading), new Rectangle(16, y + 18, Math.Max(1, Width - 32), 17), palette.Muted, small);
             if (reading?.Failed == true) Artwork.Text(g, "!", new Rectangle(Width - 10, y, 8, 16), Color.DarkOrange, numbers);
             y += height;
             g.DrawLine(border, 12, y - 2, Width - 12, y - 2);
@@ -133,7 +141,7 @@ internal sealed class Dashboard : Form
     }
     private void Meter(Graphics g, Period period, int column, int y, Colors colors, Font numbers, Font small, bool stale)
     {
-        var span = (Width - 40 - 88) / 2;
+        var span = (Width - 40) / 2;
         var x = 16 + column * (span + 8);
         Artwork.Text(g, Artwork.Countdown(period.Reset), new Rectangle(x, y, 72, 17), colors.Muted, small);
         var track = new Rectangle(x + 72, y + 5, Math.Max(1, span - 107), 6);
@@ -168,9 +176,6 @@ internal sealed class Dashboard : Form
     {
         base.OnMouseDown(args); if (args.Button != MouseButtons.Left) return;
         if (ActivateHeader(args.Location)) return;
-        var section = _sections.FirstOrDefault(item => new Rectangle(Width - 100, item.Bounds.Y + 18, 88, 17).Contains(args.Location));
-        if (section.Key is string tokenKey && _preferences.Identities.Any(item => item.Key == tokenKey && item.Vendor == "claude"))
-        { TokenSourceRequested?.Invoke(tokenKey); return; }
         if (_arranging && args.Y >= 29)
         { _dragged = _sections.FirstOrDefault(item => item.Bounds.Contains(args.Location)).Key; Capture = _dragged is not null; return; }
         if (args.Y < 28) { ReleaseCapture(); SendMessage(Handle, 0xA1, new IntPtr(2), IntPtr.Zero); }
@@ -189,9 +194,6 @@ internal sealed class Dashboard : Form
         { _target = _sections.FirstOrDefault(item => item.Bounds.Contains(args.Location)).Key; Cursor = Cursors.SizeAll; Invalidate(); return; }
         Cursor = AddButton.Contains(args.Location) || OrderButton.Contains(args.Location) || PinButton.Contains(args.Location) ? Cursors.Hand
             : _arranging && args.Y >= 29 ? Cursors.SizeAll : Cursors.Default;
-        var section = _sections.FirstOrDefault(item => item.Bounds.Contains(args.Location));
-        if (section.Key is not null && new Rectangle(Width - 100, section.Bounds.Y + 18, 88, 17).Contains(args.Location)
-            && _preferences.Identities.Any(item => item.Key == section.Key && item.Vendor == "claude")) Cursor = Cursors.Hand;
     }
     protected override void OnMouseUp(MouseEventArgs args)
     {
@@ -231,7 +233,9 @@ internal sealed class Dashboard : Form
         path.AddArc(box.Left, box.Bottom - diameter, diameter, diameter, 90, 90); path.CloseFigure(); return path;
     }
     [DllImport("user32.dll")] private static extern bool ReleaseCapture();
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr handle, int message, IntPtr wparam, IntPtr lparam);
+    [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
     protected override void Dispose(bool disposing)
     { if (disposing) { foreach (var image in _images.Values) image?.Dispose(); Icon?.Dispose(); Font.Dispose(); } base.Dispose(disposing); }
 }

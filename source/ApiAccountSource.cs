@@ -139,8 +139,7 @@ internal sealed class ApiAccountSource : IAccountSource
         }
         var cost = totals.Count == 0 ? "keine gemeldeten Kosten" : string.Join(" · ", totals.Select(item => item.Value.ToString("N2", German) + " " + item.Key));
         return new(identity.Key, [], null, "API verbunden · Organisation", DateTimeOffset.Now,
-            Detail: "Monat " + cost + " · " + checked(input + output).ToString("N0", German) + " Text-Token\nText-Input " + input.ToString("N0", German) + " Token · Output " + output.ToString("N0", German)
-                + " Token\nOrganisation · seit " + start.ToString("dd.MM.yyyy") + " UTC; Anbieter-Verzögerung möglich.\nKosten: alle API-Kosten. Token: Text-/Completion-Nutzung, keine vollständige Bild-, Video- oder Audiozählung. Kein Guthaben.",
+            Detail: "Monat " + cost + "\nOrganisation · seit " + start.ToString("dd.MM.yyyy") + " UTC; Anbieter-Verzögerung möglich.\nKosten: alle API-Kosten. Kein Guthaben.",
             Tokens: new(checked(input + output), start, end ?? DateTimeOffset.UtcNow, "OpenAI-Organisation · nur Text-/Completion-API; weitere Produktarten können fehlen. Keine Codex-/ChatGPT-Abos; Anbieter-Verzögerung möglich.", input, output, Partial: true));
     }
     public void Dispose() => _transport.Dispose();

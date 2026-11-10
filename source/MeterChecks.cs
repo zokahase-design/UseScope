@@ -127,7 +127,7 @@ internal static class MeterChecks
                 check(nativeResponse.IsSuccessStatusCode && nativeCalls == 1, kind + ": native local API forwarding works without paid network calls");
             }
             var arcee = ArceeSource.Parse(account, JsonNode.Parse("{\"total_input_tokens\":10,\"total_output_tokens\":5,\"total_tokens\":15,\"total_requests\":2}")!.AsObject(), DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow);
-            check(arcee.Detail!.Contains("15 Token") && arcee.Balance is null, "Arcee account tokens never imply money");
+            check(arcee.Tokens?.Total == 15 && !arcee.Detail!.Contains("15 Token") && arcee.Balance is null, "Arcee account tokens never imply money");
             var step = StepFunSource.Parse(account, JsonNode.Parse("{\"object\":\"account\",\"type\":\"prepaid\",\"balance\":\"2.50\",\"total_cash_balance\":\"1000\"}")!.AsObject());
             check(step.Balance == "Saldo 2,50 USD*" && !step.Balance.Contains("1000"), "StepFun current balance excludes lifetime deposits");
             var ocean = DigitalOceanBillingSource.Parse(account, JsonNode.Parse("{\"account_balance\":\"-1.25\",\"month_to_date_usage\":\"2.50\",\"month_to_date_balance\":\"1.25\",\"generated_at\":\"2026-11-03T00:00:00Z\"}")!.AsObject());

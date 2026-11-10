@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>UseScope</AssemblyName>
     <RootNamespace>UseScope.Desktop</RootNamespace>
-    <Version>2.6.0</Version>
+    <Version>2.6.2</Version>
     <Product>UseScope</Product>
     <Description>Persönliche Übersicht für KI-Nutzungslimits</Description>
     <ApplicationIcon>UseScope.ico</ApplicationIcon>

@@ -16,6 +16,7 @@ internal sealed class DesktopApp : ApplicationContext
     private readonly ShellOverlayGuard _shell;
     private bool _closing;
     private bool _paintPending;
+    private bool _raisePending;
     internal DesktopApp(Preferences preferences)
     {
         _preferences = preferences;
@@ -24,12 +25,15 @@ internal sealed class DesktopApp : ApplicationContext
         _tray = CreateTrayIcon(_menu); _tray.Visible = true;
         _shell = new ShellOverlayGuard(_view, active => {
             _view.ShellOverlayActive(active);
-            if (!active && _paintPending) Paint();
+            if (!active)
+            {
+                if (_paintPending) Paint();
+                RaiseWidgetWhenReady();
+            }
         });
         _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) Toggle(); };
         _view.OrderChanged += Paint;
         _view.AddRequested += Add;
-        _view.TokenSourceRequested += key => { var identity = _preferences.Identities.FirstOrDefault(item => item.Key == key); if (identity is not null) _ = ConfigureTokens(identity); };
         _view.PinRequested += () => Change(() => preferences.Pinned = !preferences.Pinned);
         _menu.Opening += (_, e) => {
             _view.MenuActive(true);
@@ -38,6 +42,7 @@ internal sealed class DesktopApp : ApplicationContext
         _menu.Closed += (_, _) => {
             _view.MenuActive(false);
             if (_paintPending) Paint();
+            RaiseWidgetWhenReady();
         };
         _monitor.Changed += reading => {
             if (!_closing) try { _view.BeginInvoke((Action)(() => {
@@ -71,8 +76,33 @@ internal sealed class DesktopApp : ApplicationContext
     private void Toggle()
     {
         if (_menu.Visible) _menu.Close();
-        if (_view.Visible) _view.Hide();
-        else { Paint(); _view.Place(); _view.Show(); _ = Poll(false); }
+        if (_view.Visible && (_preferences.Pinned || _view.IsInForeground)) HideWidget();
+        else ShowWidget();
+    }
+    private void ShowWidget()
+    {
+        if (_closing) return;
+        _shell.Poll();
+        if (!_view.Visible)
+        {
+            Paint();
+            _view.Place();
+            _view.Show();
+            _ = Poll(false);
+        }
+        _raisePending = true;
+        RaiseWidgetWhenReady();
+    }
+    private void HideWidget()
+    {
+        _raisePending = false;
+        _view.Hide();
+    }
+    private void RaiseWidgetWhenReady()
+    {
+        if (!_raisePending || _closing || _menu.Visible || _shell.IsOpen) return;
+        _raisePending = false;
+        if (_view.Visible) _view.RaiseForUser();
     }
     private void Change(Action mutation)
     {
@@ -90,7 +120,10 @@ internal sealed class DesktopApp : ApplicationContext
         var old = _menu.Items.Cast<ToolStripItem>().ToArray();
         _menu.Items.Clear(); foreach (var item in old) { DisposeImages(item); item.Dispose(); }
         _menu.Items.Add(CreateMenuHeading());
-        _menu.Items.Add(Command("Widget ein- / ausblenden", Toggle));
+        _menu.Items.Add(Command("Widget nach vorne holen", () => _view.BeginInvoke((Action)ShowWidget)));
+        var hide = Command("Widget ausblenden", HideWidget);
+        hide.Enabled = _view.Visible;
+        _menu.Items.Add(hide);
         _menu.Items.Add(Command("Nutzung aktualisieren", () => _ = Poll(true)));
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(Command("Konto hinzufügen…", Add));
@@ -106,13 +139,9 @@ internal sealed class DesktopApp : ApplicationContext
             account.DropDownItems.Add(Command("Werte und Verbindung erklären…", () => MessageBox.Show(ReadingPresentation.Detail(identity, _readings.GetValueOrDefault(identity.Key)) + "\n\n" + provider.Help, provider.Name)));
             account.DropDownItems.Add(Command("Nutzung aktualisieren", () => _ = Poll(true, identity.Key)));
             account.DropDownItems.Add(new ToolStripSeparator());
-            account.DropDownItems.Add(TokenPeriodMenu(identity, observed, key => _ = SetTokenPeriod(identity, key)));
             account.DropDownItems.Add(Command("Guthaben / Credits anzeigen", () => Change(() => _preferences.SetBalance(identity, !identity.ShowBalance)), identity.ShowBalance));
-            if (identity.Vendor == "claude")
-            {
-                account.DropDownItems.Add(Command("Lokale Tokenquelle…", () => _ = ConfigureTokens(identity)));
-                if (LocalTokenReader.DirectoryFor(identity) is not null) account.DropDownItems.Add(Command("Lokale Tokenquelle entfernen", () => _ = SetTokenDirectory(identity, null)));
-            }
+            if (LocalTokenReader.DirectoryFor(identity) is not null)
+                account.DropDownItems.Add(Command("Lokalen Claude-Verlauf trennen", () => _ = DisconnectLocalHistory(identity)));
             account.DropDownItems.Add(new ToolStripSeparator());
             if (meter || provider.Connection != ConnectionKind.Portal)
                 account.DropDownItems.Add(Command(meter ? "API-Zähler einrichten…" : provider.Connection == ConnectionKind.Native ? "Anmelden…" : "API-Schlüssel hinterlegen…", () => Login(identity)));
@@ -162,28 +191,6 @@ internal sealed class DesktopApp : ApplicationContext
         }
     }
     internal static ToolStripLabel CreateMenuHeading() => new(AppInfo.MenuTitle);
-    internal static ToolStripMenuItem TokenPeriodMenu(Identity identity, Reading? reading, Action<string> choose)
-    {
-        var menu = new ToolStripMenuItem("Tokenzeitraum");
-        foreach (var option in TokenPeriods.Available(identity, reading))
-        {
-            var item = Command(option.Label, () => choose(option.Key), TokenPeriods.Selected(identity) == option.Key);
-            item.Enabled = option.Enabled;
-            menu.DropDownItems.Add(item);
-        }
-        return menu;
-    }
-    private async Task SetTokenPeriod(Identity identity, string key)
-    {
-        try
-        {
-            identity = _preferences.Identities.Single(item => item.Key == identity.Key);
-            _preferences.SetConnection(identity, TokenPeriods.Options(identity, key));
-            await _monitor.Reproject(_preferences.Identities.Single(item => item.Key == identity.Key));
-            Paint();
-        }
-        catch (Exception) { MessageBox.Show(_view, "Tokenzeitraum konnte nicht übernommen werden.", "UseScope"); }
-    }
     internal static NotifyIcon CreateTrayIcon(ContextMenuStrip menu) => new() { Text = "", Icon = Artwork.CreateIcon(), ContextMenuStrip = menu };
     private static void DisposeImages(ToolStripItem item)
     {
@@ -259,37 +266,19 @@ internal sealed class DesktopApp : ApplicationContext
         }
         catch (Exception) { MessageBox.Show("Konto konnte nicht hinzugefügt werden.", "UseScope"); }
     }
-    private async Task ConfigureTokens(Identity identity)
+    private async Task DisconnectLocalHistory(Identity identity)
     {
-        using var picker = new FolderBrowserDialog { Description = "Claude-Code-Sitzungsordner nur für dieses Konto wählen (JSONL-Dateien)", UseDescriptionForTitle = true,
-            ShowNewFolderButton = false, SelectedPath = LocalTokenReader.DirectoryFor(identity) ?? "" };
-        if (picker.ShowDialog(_view) != DialogResult.OK) return;
         try
         {
-            var directory = LocalTokenReader.ValidateDirectory(picker.SelectedPath);
-            LocalTokenReader.EnsureExclusive(identity, _preferences.Identities, directory);
-            if (MessageBox.Show(_view, "JSONL-Dateien lokal auswerten? Es werden nur Token-Metadaten übernommen, keine Prompts oder Antworten gespeichert.\n\nDer Ordner muss ausschließlich Sitzungen dieses Kontos enthalten. UseScope kann die Kontozuordnung in diesen Dateien nicht automatisch überprüfen. Webnutzung und andere Geräte fehlen.\n\n" + directory,
-                "Tokenquelle · " + identity.Title, MessageBoxButtons.YesNo, MessageBoxIcon.Information, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
-            await SetTokenDirectory(identity, directory);
-        }
-        catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException) { MessageBox.Show(_view, "Tokenquelle konnte nicht zugeordnet werden. Einen getrennten lokalen Sitzungsordner für dieses Konto wählen.", "UseScope"); }
-    }
-    private async Task SetTokenDirectory(Identity identity, string? directory)
-    {
-        var values = identity.ConnectionOptions?.DeepClone().AsObject() ?? new System.Text.Json.Nodes.JsonObject();
-        if (directory is null) { values.Remove("TokenLogDirectory"); values.Remove("TokenLogBinding"); }
-        else
-        {
-            if (_readings.GetValueOrDefault(identity.Key) is not { AccountBinding: string binding, Failed: false })
-            { MessageBox.Show(_view, "Bitte zuerst eine erfolgreiche Kontoverbindung herstellen und dann die Tokenquelle zuordnen.", "UseScope"); return; }
-            values["TokenLogDirectory"] = directory; values["TokenLogBinding"] = binding;
-        }
-        try
-        {
-            await _monitor.Authenticate(identity, _ => { _preferences.SetConnection(identity, values); return Task.CompletedTask; });
+            await _monitor.Authenticate(identity, _ =>
+            {
+                var current = _preferences.Identities.Single(item => item.Key == identity.Key);
+                _preferences.SetConnection(current, LocalTokenReader.WithoutDirectory(current));
+                return Task.CompletedTask;
+            });
             _readings.Remove(identity.Key); Paint(); await Poll(true, identity.Key);
         }
-        catch (Exception) { MessageBox.Show(_view, "Tokenquelle konnte nicht gespeichert werden.", "UseScope"); }
+        catch (Exception) { MessageBox.Show(_view, "Lokaler Claude-Verlauf konnte nicht getrennt werden.", "UseScope"); }
     }
     private async void Login(Identity identity)
     {

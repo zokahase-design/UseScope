@@ -56,7 +56,7 @@ internal static class ApiChecks
         var organization = ApiAccountSource.ParseOpenAi(account,
             JsonNode.Parse("[{\"results\":[{\"input_tokens\":1200,\"output_tokens\":300},{\"input_tokens\":20,\"output_tokens\":50}]}]")!.AsArray(),
             JsonNode.Parse("[{\"results\":[{\"amount\":{\"value\":1.25,\"currency\":\"usd\"}},{\"amount\":{\"value\":0.50,\"currency\":\"usd\"}}]}]")!.AsArray(), DateTimeOffset.UtcNow);
-        check(organization.Balance is null && organization.Detail!.Contains("1,75 USD") && organization.Detail.Contains("1.220 Token") && organization.Detail.Contains("350 Token"), "Organization costs and text tokens summed without inventing credit");
+        check(organization.Balance is null && organization.Detail!.Contains("1,75 USD") && organization.Tokens is { Total: 1570, Input: 1220, Output: 350 } && !organization.Detail.Contains("Token"), "Organization costs and text tokens summed without inventing credit");
         check(ApiAccountSource.ParseOpenAi(account, [], [], DateTimeOffset.UtcNow).Detail!.Contains("keine gemeldeten Kosten"), "Empty organization data does not invent zero USD");
         using (var portal = new ApiAccountSource((_, _, _) => throw new InvalidOperationException("No network expected"), (_, _) => throw new InvalidOperationException("No credential read expected")))
         {
@@ -78,7 +78,7 @@ internal static class ApiChecks
         }, (_, _) => Task.FromResult<string?>("example-test-key")))
         {
             var result = await paginated.Query(account with { Vendor = "openai-api" }, default);
-            check(requested.Count == 3 && requested[1].Contains("cursor%20%26%20example") && result.Detail!.Contains("40 Token"), "Every usage page included with escaped cursor");
+            check(requested.Count == 3 && requested[1].Contains("cursor%20%26%20example") && result.Tokens is { Total: 46, Input: 40, Output: 6 }, "Every usage page included with escaped cursor");
             check(requested.All(url => new Uri(url).Host == "api.openai.com" && !url.Contains("example-test-key")), "API key never included in URL");
         }
         foreach (var payload in new[] { "{\"data\":[]}", "{\"data\":[],\"has_more\":\"false\"}", "{\"data\":[],\"has_more\":true,\"next_page\":\"repeated\"}" })

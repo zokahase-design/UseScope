@@ -21,31 +21,6 @@ internal static class ReadingPresentation
         return remaining ? 100 - used : used;
     }
     internal static string QuotaMode(bool remaining) => remaining ? "Verfügbares Kontingent" : "Verbrauchtes Kontingent";
-    internal static string TokenLabel(Identity account, Reading? reading) => account.Vendor == "claude" && reading?.Tokens is null ? "Tokenquelle…" : Tokens(reading);
-    internal static string Tokens(Reading? reading)
-    {
-        if (reading?.Tokens is not { Total: >= 0 } value || value.To < value.From) return "Token n. v.";
-        decimal count = value.Total; var scale = 0;
-        string[] units = ["", "k", "M", "Mrd", "Bio", "Brd"];
-        while (count >= 1000 && scale < units.Length - 1) { count /= 1000; scale++; }
-        if (value.Partial && scale > 0) count = Math.Truncate(count * 10) / 10;
-        if (!value.Partial && Math.Round(count, 1) >= 1000 && scale < units.Length - 1) { count /= 1000; scale++; }
-        return (value.Partial ? "≥ " : "") + count.ToString(scale == 0 ? "0" : "0.#", CultureInfo.GetCultureInfo("de-DE")) + units[scale] + " Token";
-    }
-    internal static string TokenDetail(Reading? reading)
-    {
-        if (reading?.Tokens is not { Total: >= 0 } value || value.To < value.From)
-            return reading?.TokenNote ?? "Tokenverbrauch nicht verfügbar. Diese Verbindung meldet keine Tokenzahl für das Konto; Limit-Prozente werden nicht in Token umgerechnet.";
-        var text = value.Total.ToString("N0", CultureInfo.GetCultureInfo("de-DE")) + " Token\n"
-            + (value.Lifetime ? "Gesamter gemeldeter Zeitraum · Stand " : value.From.ToUniversalTime().ToString("dd.MM.yyyy HH:mm") + " bis ")
-            + value.To.ToUniversalTime().ToString("dd.MM.yyyy HH:mm") + " UTC\n" + value.Scope;
-        if (value.Input is long input) text += "\nInput: " + input.ToString("N0", CultureInfo.GetCultureInfo("de-DE"));
-        if (value.Output is long output) text += " · Output: " + output.ToString("N0", CultureInfo.GetCultureInfo("de-DE"));
-        if (value.Partial) text += "\nUnvollständig: mindestens dieser gemeldete Verbrauch; weitere Token können fehlen.";
-        if (reading.Failed) text += "\nLetzter bekannter Stand; aktuelle Abfrage fehlgeschlagen.";
-        if (!string.IsNullOrEmpty(reading.TokenNote)) text += "\n" + reading.TokenNote;
-        return text;
-    }
     internal static string Balance(Identity account, Reading? reading)
     {
         var value = reading?.Balance?.Trim();
@@ -61,7 +36,7 @@ internal static class ReadingPresentation
         return (remaining.Days > 0 ? $"{remaining.Days}d " : "") + $"{remaining.Hours}h {remaining.Minutes}min";
     }
     internal static string Detail(Identity account, Reading? reading) => (!account.ShowBalance && reading?.DetailContainsBalance == true
-        ? "Beträge ausgeblendet. " + Providers.Get(account.Vendor).Help : reading?.Detail ?? reading?.Status ?? "Wird abgefragt …") + "\n\n" + TokenDetail(reading)
+        ? "Beträge ausgeblendet. " + Providers.Get(account.Vendor).Help : reading?.Detail ?? reading?.Status ?? "Wird abgefragt …")
         + (reading?.Failed == true && reading.NextAttempt is DateTimeOffset next ? "\nNächste automatische Abfrage: " + next.ToLocalTime().ToString("dd.MM. HH:mm:ss") : "");
     internal static string Summary(Identity account, Reading? reading) => reading?.Failed == true ? reading.Status
         : !MeterStorage.Enabled(account) && Providers.Get(account.Vendor).Connection == ConnectionKind.Portal ? "Portal · keine automatische Messung"

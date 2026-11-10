@@ -1,12 +1,8 @@
-![UseScope – Limits, Token, Guthaben. Windows und macOS.](docs/images/usescope-cover-2.5.2-os-icons.png)
-
 # UseScope
 
 Ein kompaktes Desktop-Widget für KI-Abos, API-Verbrauch, Reset-Zeiten und gemeldetes Guthaben. Direkte Kontoabfragen und ein optionaler lokaler API-Zähler ergänzen sich.
 
-Die kompakte [Tokenanzeige](docs/TOKENS.md) ergänzt verfügbare Verbrauchswerte je Konto. Zeitraum und Messumfang sind in den Details sichtbar; Teilmessungen und fehlende Werte bleiben erkennbar.
-
-**2.6.0 ist ein vorbereiteter Prüfstand.** Die Liste umfasst 53 Anbieterfamilien; das bedeutet keine 53 bestätigten Konto-Gesamtmessungen. 46 Familien besitzen einen lokalen API-Zähler-Preset, davon 39 mit fester Basisadresse und 7 mit eigener Konto-/Ressourcenadresse. Meta Muse wird zusätzlich über die CLI angebunden. Sechs Familien haben noch keinen verifizierten automatischen Anschluss. [Vollständige Matrix und Quellen](docs/PROVIDER_MATRIX.md).
+**2.6.2 ist ein lokal vorbereiteter Prüfstand.** Die Liste umfasst 53 Anbieterfamilien; das bedeutet keine 53 bestätigten Konto-Gesamtmessungen. 46 Familien besitzen einen lokalen API-Zähler-Preset, davon 39 mit fester Basisadresse und 7 mit eigener Konto-/Ressourcenadresse. Meta Muse wird zusätzlich über die CLI angebunden. Sechs Familien haben noch keinen verifizierten automatischen Anschluss. [Vollständige Matrix und Quellen](docs/PROVIDER_MATRIX.md).
 
 **Windows-Version und macOS-Vorschau.** Die Mac-Pakete sind getrennt für Apple
 Silicon und Intel vorbereitet. Ihr echter macOS-Funktionstest sowie Signierung und
@@ -36,23 +32,23 @@ startfertigen Windows-Download.
 
 | Verbindung | Automatische Anzeige | Zugang |
 |---|---|---|
-| OpenAI Codex | Abo-Nutzungsfenster, Reset-Zeiten, gemeldete Credits und Tokenbericht nach Verfügbarkeit | Offizielle Codex-CLI |
-| Anthropic Claude | Abo-Nutzungsfenster, gemeldetes Prepaid-Guthaben; lokale Token nach bewusster Ordnerzuordnung | Claude Code; private Kontoendpunkte; lokale JSONL-Dateien optional |
+| OpenAI Codex | Abo-Nutzungsfenster, Reset-Zeiten, gemeldete Credits | Offizielle Codex-CLI |
+| Anthropic Claude | Abo-Nutzungsfenster, gemeldetes Prepaid-Guthaben | Claude Code; private Kontoendpunkte |
 | Hermes / Nous Portal | Gemeldetes Nous-Kontoguthaben | Hermes-CLI; privater Kontoendpunkt |
 | DeepSeek API | API-Guthaben in gemeldeter Währung | API-Schlüssel |
 | Kimi / Moonshot International | API-Guthaben in USD | Internationaler API-Schlüssel |
 | OpenRouter | Verbrauch dieses Schlüssels und verbleibendes Ausgabenlimit | API-Schlüssel |
-| OpenAI API | Organisationskosten sowie Text-Input/Output-Token im laufenden UTC-Monat | Admin-API-Schlüssel |
+| OpenAI API | Gemeldete Organisationskosten im laufenden UTC-Monat | Admin-API-Schlüssel |
 | xAI / Grok API | Vorzeichenbehafteter API-Teamsaldo in USD | Management-Key und Team-ID |
-| Anthropic API | Organisations-Analytics: Token inkl. Cache, gemeldete Monatskosten; Datenverzug möglich | Admin-Key |
+| Anthropic API | Gemeldete Organisationskosten im laufenden UTC-Monat; Datenverzug möglich | Admin-Key |
 | Meta Muse Code | Gemeldete Abo-Fenster, Tarif und Datenstand | Muse-CLI; frische Abfrage experimentell |
 | MiniMax M-Plan | Intervall-/Wochen-Prozentwerte gemeldeter Plangruppen | mmx-CLI |
 | MiniMax PAYG Global | Verfügbarer Betrag, Währung vom Nutzer übernommen | PAYG-Key; kein M-Plan-/Hailuo-Abo |
-| Gemini API / Google Cloud | Projekt-Anfragen und Output-Token; optional Projektkosten aus vorhandenem Export | gcloud, Projekt-/Monitoring-Rechte; BigQuery optional |
+| Gemini API / Google Cloud | Projekt-Anfragen; optional Projektkosten aus vorhandenem Export | gcloud, Projekt-/Monitoring-Rechte; BigQuery optional |
 | Qwen/Wan Cloud-Abrechnung | Gemeinsames Cloud-Cashguthaben und Monatskosten | RAM AccessKey-ID/Secret; Billing-Leserechte |
 | Alibaba Coding-/Tokenplan | Tatsächlich gemeldete Planfenster | Bailian-CLI; eigene Console-Site |
-| Arcee, StepFun, Mistral Enterprise, DigitalOcean Billing | Gemeldete API-Token, Saldo oder Cloud-/Enterprise-Nutzung je Adapter | Jeweiliger API-/Admin-/Billing-Key; siehe Messumfang |
-| Weitere API-Anbieter | Nur durch UseScope geleitete Anfragen und gemeldete Token/Kosten | Optionaler lokaler API-Zähler mit eigenem Inference-Key |
+| Arcee, StepFun, Mistral Enterprise, DigitalOcean Billing | Gemeldete Anfragen, Saldo oder Cloud-/Enterprise-Nutzung je Adapter | Jeweiliger API-/Admin-/Billing-Key; siehe Messumfang |
+| Weitere API-Anbieter | Nur durch UseScope geleitete Anfragen und gemeldete Kosten | Optionaler lokaler API-Zähler mit eigenem Inference-Key |
 | Grok-App und übrige Infoeinträge | Portal / Abgrenzung ohne automatische Messung | Keine als erfolgreich ausgegebene Verbindung |
 
 **Abo, API-Konto und Modell sind unterschiedliche Dinge.** Ein Chat-Abo ist kein
@@ -64,7 +60,7 @@ API-Aufrufe werden dadurch nicht automatisch mitgezählt.
 UseScope schätzt keine historischen Kosten aus aktuellen Modellpreisen und leitet
 keinen Tokenverbrauch aus sinkendem Guthaben ab. API-Anbieter liefern teilweise
 nur Guthaben, Kosten oder einen bestimmten Ausschnitt der Nutzung. Fehlende Werte
-heißen `Nicht gemeldet`, `Unbekannt` oder `Token n. v.`; eine fehlende Meldung ist keine gemessene Null.
+heißen `Nicht gemeldet` oder `Unbekannt`; eine fehlende Meldung ist keine gemessene Null.
 OpenRouter-Restlimit und xAI-Teamsaldo sind ausdrücklich kein normalisiertes
 Kontoguthaben. Datenstand und Umfang stehen bei **Werte und Verbindung erklären…**
 (Windows) bzw. **Infos** in der Mac-Kontoverwaltung.
@@ -116,36 +112,8 @@ Unter **Darstellung → Limitbalken** lässt sich die Anzeige für alle Konten u
 
 Balken und Prozentzahl wechseln gemeinsam. Der Farbverlauf dreht sich passend
 um: Knappes Restkontingent bleibt rot erkennbar. Die Auswahl wird gespeichert
-und gilt auch nach einem Neustart. Resetzeiten, Guthaben und Tokenwerte behalten
+und gilt auch nach einem Neustart. Resetzeiten und Guthaben behalten
 ihre Bedeutung; es ist keine neue Anbieterabfrage nötig.
-
-## Tokenzeitraum pro Konto
-
-Unter Windows: **Tray-Menü → Konten → gewünschtes Konto → Tokenzeitraum**.
-Auf dem Mac: **Konten → Tokenzeitraum**. Die Auswahl wird je Konto gespeichert,
-wertet vorhandene Daten neu aus und löst keine zusätzliche Anbieterabfrage aus.
-
-- **Codex:** Heute, letzte 7 Kalendertage, laufender Monat und Vormonat,
-  soweit die CLI Tageswerte liefert; außerdem Gesamt. Bei einer reinen
-  Gesamtsumme bleiben Kalenderfenster ausgegraut. Aus Tageswerten entsteht
-  kein exaktes rollierendes 24-Stunden-Fenster.
-- **Lokale Claude-Code-Quelle und lokaler API-Zähler:** Zusätzlich genaue
-  Zeitfenster der letzten 24 Stunden und 7 × 24 Stunden, ausschließlich aus
-  aufgezeichneten Zeitstempeln. Gesamt umfasst nur die vorhandenen lokalen Daten.
-- **Andere direkte API-Berichte:** Ihr bisheriger fester Berichtszeitraum
-  bleibt bestehen; es wird keine unpassende Auswahl angeboten.
-
-Kalenderzeiträume verwenden UTC; Vormonat endet am ersten Tag des laufenden
-Monats um 00:00 UTC. Guthaben, Kosten und Limitfenster ändern ihren Zeitraum
-dadurch nicht. `≥` kennzeichnet unvollständige Abdeckung.
-
-**Claude ohne Tokenzahl ist ohne eingerichtete lokale Quelle erwartbar.**
-Die Abo-Limitabfrage liefert hier keine Tokenzahl. Auf `Tokenquelle…` im Widget
-klicken und nach erfolgreicher Anmeldung einen ausschließlich diesem Konto
-zugehörigen Claude-Code-JSONL-Ordner auswählen. Claude-Webnutzung, andere Geräte
-und nicht aufgezeichnete Sitzungen sind darin nicht enthalten. Bei mehreren
-Konten keinen gemeinsamen Verlaufsordner pauschal einem Konto zuordnen.
-Details: [Tokenquellen und Messgrenzen](docs/TOKENS.md).
 
 <table>
   <tr><th>Dunkel</th><th>Hell</th></tr>

@@ -14,13 +14,15 @@ Profile liegen normalerweise unter `profiles/`. Native Anbieterprogramme können
 dort Zugangstokens und weitere Anmeldedaten speichern. UseScope kopiert diese
 Tokens nicht in die Einstellungsdatei oder in seine Diagnoseberichte.
 
-Eine optionale Claude-Tokenquelle wird nur nach bewusster lokaler Ordnerwahl und
-Bestätigung ausgewertet. In den Einstellungen stehen dann der Ordner und ein
+Eine frühere Claude-Tokenquelle wird nur nach damaliger lokaler Ordnerwahl und
+Bestätigung ausgewertet. In den Einstellungen stehen der Ordner und ein
 Hash der bestätigten Konto-/Organisationskennung zur Bindungsprüfung. Es werden
 keine Sitzungstexte oder Prompts kopiert oder gespeichert. Der begrenzte
 Arbeitsspeichercache enthält nur Messagehashes, Zeitstempel und Tokenzahlen.
 Ohne passende Zuordnung wird keine automatische Suche in fremden CLI-Verläufen
-gestartet; die Quelle lässt sich wieder entfernen.
+gestartet. Ab 2.6.2 erscheint die Tokenzahl nicht in der Oberfläche. Über
+„Lokalen Claude-Verlauf trennen“ lässt sich die frühere Ordnerzuordnung
+im Kontomenü aufheben.
 
 Codex-Tokenaktivität wird über den dokumentierten `account/usage/read`-Bericht
 der bestehenden eigenen CLI-Verbindung gelesen, nicht aus Browser- oder

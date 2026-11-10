@@ -25,8 +25,7 @@ internal sealed class ArceeSource : IAccountSource
         var input = MeterData.Count(value["total_input_tokens"]); var output = MeterData.Count(value["total_output_tokens"]); var total = MeterData.Count(value["total_tokens"]); var calls = MeterData.Count(value["total_requests"]);
         if (checked(input + output) != total) throw new InvalidDataException("Arcee-Token-Summe inkonsistent.");
         return new(identity.Key, [], null, "API verbunden · Arcee-Verbrauch", DateTimeOffset.UtcNow,
-            Detail: "Monat · " + total.ToString("N0", ApiAccountSource.German) + " Token · " + calls.ToString("N0", ApiAccountSource.German) + " Anfragen"
-            + "\nInput " + input.ToString("N0", ApiAccountSource.German) + " · Output " + output.ToString("N0", ApiAccountSource.German)
+            Detail: "Monat · " + calls.ToString("N0", ApiAccountSource.German) + " Anfragen"
             + "\nArcee-Kontobericht einschließlich der dort erfassten API-/App-Nutzung; keine Kosten oder Wallet aus Tokenzahlen abgeleitet."
             + "\nAbfragezeitraum " + start.ToString("u") + " bis " + end.ToString("u") + ". Anbieter-Verzögerung möglich.",
             Tokens: new(total, start, end, "Arcee-Kontobericht · dort erfasste API-/App-Nutzung; Anbieter-Verzögerung möglich.", input, output));

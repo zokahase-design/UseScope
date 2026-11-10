@@ -15,7 +15,8 @@ Weitere native Verbindungen benötigen entsprechend Muse, mmx, gcloud oder Baili
 
 Für den optionalen lokalen API-Zähler im KI-Client die angezeigte lokale API-Adresse und den lokalen Schlüssel eintragen; den eigentlichen Inference-Key speichert UseScope geschützt. UseScope muss während der API-Nutzung laufen. Nur dadurch geleitete Nutzung wird gezählt, keine historische Kontosumme. Siehe API_METER.md und PROVIDER_MATRIX.md.
 
-Linksklick auf das Tray-Symbol oder `Strg+Alt+U` blendet das Widget ein und aus.
+Linksklick auf das Tray-Symbol oder `Strg+Alt+U` zeigt das Widget an und holt es bei Bedarf nach vorne. Zum gezielten Ausblenden dient der Menüpunkt **Widget ausblenden**.
+Über **Widget nach vorne holen** im Tray-Menü lässt sich auch ein verdecktes Widget bei offenem Schloss direkt anzeigen.
 Rechtsklick öffnet Konten, Aktualisieren, Darstellung, Windows-Start und Beenden.
 Das Menü gruppiert Schnellaktionen, Konto hinzufügen/Konten sowie Darstellung
 und Programmende. Im Konto-Untermenü folgen auf Werte und Aktualisieren die
@@ -32,16 +33,8 @@ Resetzeiten erscheinen als `0h 0min`. Meldet der Anbieter kein Guthaben oder
 keinen Resetzeitpunkt, steht dort `Nicht gemeldet` bzw. `Unbekannt`; diese Angaben
 sind keine gemessenen Nullwerte. Vor der ersten Abfrage steht `Wird abgefragt …`.
 
-Rechts neben den Limitbalken steht der Tokenverbrauch, z. B. `12,3k Token`.
-Den genauen Wert, Zeitraum und die Datenquelle findest du über „Werte und
-Verbindung erklären…“ im Kontomenü (Mac: „Infos“). Es gibt keine Hover-Infofenster.
-`≥` kennzeichnet eine Teilmessung, `Token n. v.` eine fehlende Tokenquelle.
-Siehe TOKENS.md für die Abdeckung der jeweiligen Verbindung.
-
-Den Tokenzeitraum je Konto unter Tray-Menü → Konten → Konto → Tokenzeitraum
-ändern (Mac: Konten → Tokenzeitraum). Codex benötigt für Kalenderfenster
-gemeldete Tageswerte. Lokale Quellen bieten zusätzlich letzte 24 Stunden und
-7 × 24 Stunden. Kosten und Guthaben behalten ihren bisherigen Zeitraum.
+Die Limitbalken nutzen die Breite der Kontozeile. „Werte und Verbindung erklären…“
+im Kontomenü (Mac: „Infos“) zeigt weitere Angaben zu den gemeldeten Werten.
 
 UseScope fragt native Konten automatisch frühestens alle fünf Minuten und
 API-Abrechnungen frühestens alle zehn Minuten ab. Konten desselben Anbieters
@@ -58,11 +51,6 @@ Bei `Anmeldung erforderlich` das betroffene Konto über `Anmelden…` selbst neu
 anmelden. Browser oder Desktop-App müssen dafür nicht allein wegen der
 zusätzlichen UseScope-Abfrage geschlossen werden. Fremde Browser-Sitzungen
 werden nicht übernommen.
-
-Codex-Token werden nach Verfügbarkeit aus dem Kontobericht der CLI gelesen.
-Bei Claude auf `Tokenquelle…` klicken und lokale Sitzungsdateien bewusst diesem
-Konto zuordnen. Damit werden keine Token aus Claude-Web oder anderen Geräten
-gezählt. Einzelheiten und Messgrenzen stehen in TOKENS.md.
 
 Vor einem Update UseScope selbst über das Tray-Menü beenden. Dann das neue Paket
 vollständig entpacken. Einstellungen und Anmeldungen bleiben unter

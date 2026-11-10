@@ -8,7 +8,6 @@ using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
 using Avalonia.Threading;
 using System.Diagnostics;
-using Avalonia.Platform.Storage;
 
 namespace UseScope.Desktop;
 
@@ -38,7 +37,6 @@ internal sealed class MacApp : Application
             _widget.Pin += () => Change(() => _preferences.Pinned = !_preferences.Pinned);
             _widget.Order += () => _ = Manage();
             _widget.Add += () => _ = Manage(true);
-            _widget.TokenSource += identity => _ = ConfigureTokens(identity);
             _widget.Closing += (_, args) => { if (!_exiting) { args.Cancel = true; _widget.Hide(); } };
             desktop.MainWindow = _widget;
             _tray = new TrayIcon { Icon = new WindowIcon(Path.Combine(AppContext.BaseDirectory, "UseScope.ico")), Menu = _menu, IsVisible = true };
@@ -142,16 +140,12 @@ internal sealed class MacApp : Application
                 var actions = new WrapPanel { Orientation = Orientation.Horizontal };
                 Button Action(string text, Action callback) { var button = new Button { Content = text, FontSize = 11 }; button.Click += (_, _) => callback(); actions.Children.Add(button); return button; }
                 var local = MeterStorage.Enabled(identity);
-                Action("Tokenzeitraum", () => _ = ChooseTokenPeriod(identity));
-                if (identity.Vendor == "claude")
-                {
-                    Action("Tokenquelle", () => _ = ConfigureTokens(identity));
-                    if (LocalTokenReader.DirectoryFor(identity) is not null) Action("Tokenquelle entfernen", () => _ = SetTokenDirectory(identity, null));
-                }
                 Action(local ? "API-Zähler einrichten" : provider.Connection == ConnectionKind.ApiKey ? "API-Schlüssel" : provider.Connection == ConnectionKind.Portal ? "Portal" : "Anmelden", () => _ = Login(identity));
                 if (local) Action("Client-Zugang", () => _ = ShowMeterClient(identity));
                 if (local) Action("Verbindung prüfen", () => _ = CheckMeter(identity));
                 Action("Infos", () => _ = Notice(ReadingPresentation.Detail(_preferences.Identities.FirstOrDefault(item => item.Key == identity.Key) ?? identity, _readings.GetValueOrDefault(identity.Key)) + "\n\n" + provider.Help));
+                if (LocalTokenReader.DirectoryFor(identity) is not null)
+                    Action("Lokalen Claude-Verlauf trennen", () => _ = DisconnectLocalHistory(identity));
                 Action("Anbieterportal", () => OpenPortal(identity));
                 if (local || provider.Connection != ConnectionKind.Portal) Action(local || provider.Connection == ConnectionKind.ApiKey ? "Schlüssel löschen" : "Abmelden", () => _ = Logout(identity));
                 Action("↑", () => { Change(() => _preferences.Move(identity, -1)); Rebuild(); });
@@ -174,54 +168,19 @@ internal sealed class MacApp : Application
         try { if (!_widget.IsVisible) _widget.Show(); await window.ShowDialog(_widget); }
         finally { _refreshAccounts = null; _accountsWindow = null; }
     }
-    private async Task ChooseTokenPeriod(Identity identity)
+    private async Task DisconnectLocalHistory(Identity identity)
     {
-        var window = new Window { Title = "Tokenzeitraum · " + identity.Title, Width = 380, SizeToContent = SizeToContent.Height,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner };
-        var panel = new StackPanel { Margin = new Thickness(16), Spacing = 6 };
-        foreach (var option in TokenPeriods.Available(identity, _readings.GetValueOrDefault(identity.Key)))
-        {
-            var button = new Button { Content = (TokenPeriods.Selected(identity) == option.Key ? "✓ " : "") + option.Label, IsEnabled = option.Enabled };
-            button.Click += async (_, _) => {
-                try
-                {
-                    var current = _preferences.Identities.Single(item => item.Key == identity.Key);
-                    _preferences.SetConnection(current, TokenPeriods.Options(current, option.Key));
-                    await _monitor.Reproject(_preferences.Identities.Single(item => item.Key == identity.Key));
-                    window.Close(); RefreshView(); _refreshAccounts?.Invoke();
-                }
-                catch (Exception) { await Notice("Tokenzeitraum konnte nicht übernommen werden."); }
-            };
-            panel.Children.Add(button);
-        }
-        panel.Children.Add(new TextBlock { Text = "Ausgegraut: Quelle meldet keine passenden Tageswerte. Die Auswahl löst keine Anbieterabfrage aus.", TextWrapping = TextWrapping.Wrap, FontSize = 11 });
-        window.Content = panel;
-        await window.ShowDialog(_accountsWindow ?? _widget);
-    }
-    private async Task ConfigureTokens(Identity identity)
-    {
-        var picked = await _widget.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Claude-Code-Sitzungsordner nur für dieses Konto wählen", AllowMultiple = false });
-        var path = picked.FirstOrDefault()?.TryGetLocalPath(); if (path is null) return;
         try
         {
-            var directory = LocalTokenReader.ValidateDirectory(path); LocalTokenReader.EnsureExclusive(identity, _preferences.Identities, directory);
-            if (!await Confirm("Lokale JSONL-Tokenmeldungen für " + identity.Title + " auswerten? Keine Prompts oder Antworten werden gespeichert. Der Ordner darf nur Sitzungen dieses Kontos enthalten; UseScope kann diese Zuordnung nicht automatisch prüfen. Webnutzung und andere Geräte fehlen.\n\n" + directory)) return;
-            await SetTokenDirectory(identity, directory);
+            await _monitor.Authenticate(identity, _ =>
+            {
+                var current = _preferences.Identities.Single(item => item.Key == identity.Key);
+                _preferences.SetConnection(current, LocalTokenReader.WithoutDirectory(current));
+                return Task.CompletedTask;
+            });
+            _readings.Remove(identity.Key); RefreshView(); _refreshAccounts?.Invoke(); await Poll(true, identity.Key);
         }
-        catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException) { await Notice("Einen getrennten lokalen Sitzungsordner für dieses Konto wählen."); }
-    }
-    private async Task SetTokenDirectory(Identity identity, string? directory)
-    {
-        var values = identity.ConnectionOptions?.DeepClone().AsObject() ?? new System.Text.Json.Nodes.JsonObject();
-        if (directory is null) { values.Remove("TokenLogDirectory"); values.Remove("TokenLogBinding"); }
-        else
-        {
-            if (_readings.GetValueOrDefault(identity.Key) is not { AccountBinding: string binding, Failed: false })
-            { await Notice("Bitte zuerst eine erfolgreiche Kontoverbindung herstellen und dann die Tokenquelle zuordnen."); return; }
-            values["TokenLogDirectory"] = directory; values["TokenLogBinding"] = binding;
-        }
-        try { await _monitor.Authenticate(identity, _ => { _preferences.SetConnection(identity, values); return Task.CompletedTask; }); _readings.Remove(identity.Key); RefreshView(); _refreshAccounts?.Invoke(); await Poll(true, identity.Key); }
-        catch (Exception) { await Notice("Tokenquelle konnte nicht gespeichert werden."); }
+        catch (Exception) { await Notice("Lokaler Claude-Verlauf konnte nicht getrennt werden."); }
     }
     private async Task<bool> Confirm(string message)
     {
@@ -393,7 +352,6 @@ internal sealed class Widget : Window
     private readonly Button _orderButton, _pinButton;
     internal Button AddButton { get; }
     internal event Action? Pin, Order, Add;
-    internal event Action<Identity>? TokenSource;
     internal Widget(Preferences preferences, IReadOnlyDictionary<string, Reading> readings)
     {
         _preferences = preferences; _readings = readings;
@@ -445,30 +403,16 @@ internal sealed class Widget : Window
                 for (var index = 0; index < reading.Periods.Count; index += 2)
                 {
                     var line = new MeterLine(reading.Periods.Skip(index).Take(2).ToArray(), dark, _preferences.ShowRemainingQuota);
-                    _rows.Children.Add(UsageLine(line, identity, reading, index == 0));
+                    _rows.Children.Add(line);
                 }
             }
             else {
                 var detail = new TextBlock { Text = ReadingPresentation.Summary(identity, reading), FontSize = 9, Foreground = muted, TextTrimming = TextTrimming.CharacterEllipsis };
-                _rows.Children.Add(UsageLine(detail, identity, reading));
+                _rows.Children.Add(detail);
             }
         }
         if (_rows.Children.Count == 0) _rows.Children.Add(new TextBlock { Text = "Konto über + hinzufügen.", FontSize = 11, Margin = new Thickness(0, 8) });
         Dispatcher.UIThread.Post(Clamp);
-    }
-    private Grid UsageLine(Control content, Identity account, Reading? reading, bool showTokens = true)
-    {
-        var line = new Grid { ColumnDefinitions = new ColumnDefinitions("*,88") };
-        content.Margin = new Thickness(0, 0, 4, 0); line.Children.Add(content);
-        if (showTokens)
-        {
-            var tokens = new TextBlock { Text = ReadingPresentation.TokenLabel(account, reading), FontSize = 9, FontWeight = FontWeight.Bold,
-                TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
-                Opacity = reading?.Tokens is not null && !reading.Failed ? 1 : .65 };
-            if (account.Vendor == "claude") tokens.PointerPressed += (_, args) => { if (args.GetCurrentPoint(tokens).Properties.IsLeftButtonPressed) { args.Handled = true; TokenSource?.Invoke(account); } };
-            Grid.SetColumn(tokens, 1); line.Children.Add(tokens);
-        }
-        return line;
     }
     internal void Place()
     {

@@ -99,7 +99,7 @@ internal static class PollingChecks
         }
         var now = DateTimeOffset.UtcNow;
         var usage = CodexSource.ParseUsage(JsonNode.Parse("{\"summary\":{\"lifetimeTokens\":1234567},\"dailyUsageBuckets\":null}")!.AsObject(), now);
-        check(usage is { Total: 1234567, Lifetime: true } && ReadingPresentation.TokenDetail(new("test", [], null, "", now, Tokens: usage)).Contains("Gesamter gemeldeter Zeitraum"), "Codex lifetime activity is never mislabeled as a monthly count");
+        check(usage is { Total: 1234567, Lifetime: true }, "Codex lifetime activity retains its lifetime flag");
         var day = now.ToString("yyyy-MM-dd");
         usage = CodexSource.ParseUsage(JsonNode.Parse("{\"dailyUsageBuckets\":[{\"startDate\":\"" + day + "\",\"tokens\":45}]}")!.AsObject(), now);
         check(usage is { Total: 45, Partial: true, Lifetime: false }, "Codex monthly buckets count only observed current-month days");

@@ -29,11 +29,16 @@ internal static class NativeUsageChecks
         {
             var binding = LocalTokenReader.Binding(new JsonObject { ["accountUuid"] = "fixture-a", ["organizationUuid"] = "fixture-org" })!;
             var account = new Identity("local-usage-example", "claude", "Fixture", root, true, true, 60, false,
-                ConnectionOptions: new JsonObject { ["TokenLogDirectory"] = root, ["TokenLogBinding"] = binding });
+                ConnectionOptions: new JsonObject { ["TokenLogDirectory"] = root, ["TokenLogBinding"] = binding, ["FixtureOption"] = true });
             var file = Path.Combine(root, "session.jsonl"); await File.WriteAllTextAsync(file, Message("message-a", now, 5) + "\n");
             var reading = new Reading(account.Key, [], null, "Fixture", now, AccountBinding: binding);
             var reader = new LocalTokenReader(); var counted = await reader.Apply(account, reading, default);
             check(counted.Tokens is { Total: 39, Partial: true }, "Explicitly bound local account reads its chosen token folder");
+            var disconnected = account with { ConnectionOptions = LocalTokenReader.WithoutDirectory(account) };
+            check(LocalTokenReader.DirectoryFor(account) == root && LocalTokenReader.DirectoryFor(disconnected) is null
+                && !disconnected.ConnectionOptions!.ContainsKey("TokenLogBinding") && disconnected.ConnectionOptions["FixtureOption"]!.GetValue<bool>()
+                && (await reader.Apply(disconnected, reading, default)).Tokens is null,
+                "Disconnecting Claude history stops local reads and preserves unrelated account options");
             var again = await reader.Apply(account, reading, default); check(again.Tokens?.Total == 39, "Repeated local reads do not accumulate the same history again");
             await File.AppendAllTextAsync(file, Message("message-a", now, 9) + "\n");
             check((await reader.Apply(account, reading, default)).Tokens?.Total == 43, "Growing streaming messages update one counter instead of duplicating usage");

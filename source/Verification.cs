@@ -111,10 +111,7 @@ internal static class Verification
                 uiPreferences.Theme = theme; uiPreferences.Pinned = true;
                 using var dashboard = new Dashboard(uiPreferences);
                 dashboard.Render(readings);
-                Check(dashboard.ClientSize == new Size(400, 227), theme + ": per-account token counter preserves original widget width and height");
-                using (var counterFont = new Font(dashboard.Font.FontFamily, 7.2f * 96f / 72f, FontStyle.Bold, GraphicsUnit.Pixel))
-                    Check(new[] { "≥ 999,9Mrd Token", "Token n. v.", "12,3k Token" }.All(label => TextRenderer.MeasureText(label, counterFont, Size.Empty, TextFormatFlags.NoPadding).Width <= 88),
-                        theme + ": compact token labels fit the reserved column");
+                Check(dashboard.ClientSize == new Size(400, 227), theme + ": wider quota bars preserve widget width and height");
                 var addRequests = 0; var pinRequests = 0;
                 dashboard.AddRequested += () => addRequests++;
                 dashboard.PinRequested += () => pinRequests++;
@@ -159,6 +156,9 @@ internal static class Verification
                 }
                 _ = dashboard.Handle; dashboard.PerformLayout();
                 using var bitmap = Snapshot(dashboard);
+                var trackColor = Colors.For(theme).Track.ToArgb();
+                Check(bitmap.GetPixel(150, 135).ToArgb() == trackColor && bitmap.GetPixel(338, 135).ToArgb() == trackColor,
+                    theme + ": both quota tracks extend into the restored full-width layout");
                 bitmap.Save(Path.Combine(destination, "widget-" + theme + ".png"), ImageFormat.Png);
                 uiPreferences.ShowRemainingQuota = true; uiPreferences.Save(); dashboard.Render(readings);
                 using (var remaining = Snapshot(dashboard))
@@ -183,16 +183,6 @@ internal static class Verification
                 {
                     Check(tray.Text.Length == 0 && tray.BalloonTipText.Length == 0 && !tray.Visible, theme + ": tray hover and balloon text are empty without creating a real tray icon");
                     tray.Icon?.Dispose();
-                }
-                var periodAccount = new Identity("period-menu", "codex", "Fixture", temporary, true, true, 60, false);
-                string? chosenPeriod = null;
-                using (var periods = DesktopApp.TokenPeriodMenu(periodAccount, new(periodAccount.Key, [], null, "", null,
-                    TokenReport: new([], 900, DateTimeOffset.UtcNow)), key => chosenPeriod = key))
-                {
-                    var choices = periods.DropDownItems.OfType<ToolStripMenuItem>().ToArray();
-                    Check(choices[0].Checked && !choices[1].Enabled && choices[^1].Enabled, theme + ": token menu disables unsupported calendar windows and retains total");
-                    choices[^1].PerformClick();
-                    Check(chosenPeriod == TokenPeriods.Total, theme + ": token menu selection dispatches the chosen period");
                 }
                 menu.Items.Add("Widget ein- / ausblenden"); menu.Items.Add("Nutzung aktualisieren"); menu.Items.Add(new ToolStripSeparator()); menu.Items.Add(nested);
                 var selected = new ToolStripMenuItem("Konto hinzufügen…"); menu.Items.Add(selected);
@@ -226,10 +216,10 @@ internal static class Verification
                     "moonshot" => ApiAccountSource.ParseMoonshot(account, JsonNode.Parse("{\"status\":true,\"data\":{\"available_balance\":12.5}}")!.AsObject()),
                     "openrouter" => ApiAccountSource.ParseOpenRouter(account, JsonNode.Parse("{\"data\":{\"usage\":23.7,\"usage_monthly\":4.2,\"limit_remaining\":6.3}}")!.AsObject()),
                     "xai" => ApiAccountSource.ParseXai(account, JsonNode.Parse("{\"total\":{\"val\":\"-1500\"}}")!.AsObject()),
-                    "openai-api" => new(account.Key, [], null, "API verbunden · Organisation", DateTimeOffset.Now, Detail: "Monat 8,90 USD · 15.900 Text-Token\nText-Input 12.500 Token · Output 3.400 Token"),
-                    "anthropic-api" => new(account.Key, [], null, "API verbunden · Organisation", DateTimeOffset.Now.AddHours(-5), Detail: "Monat 4,20 USD · 28.400 Token\nAnbieterstand 5h verzögert; Cache eingeschlossen"),
-                    "gemini" => new(account.Key, [], null, "Projekt verbunden", DateTimeOffset.Now.AddHours(-1), Detail: "Projektmonat · 314 Anfragen · 12.340 Output-Token"),
-                    "groq" or "zai" => new(account.Key, [], null, "Lokaler API-Zähler · nur durchgeleitete Anfragen", DateTimeOffset.Now, Detail: "UTC-Monat · 12 Anfragen · 18.450 gemeldete Token\nKosten nicht gemeldet; keine Schätzung"),
+                    "openai-api" => new(account.Key, [], null, "API verbunden · Organisation", DateTimeOffset.Now, Detail: "Monat 8,90 USD"),
+                    "anthropic-api" => new(account.Key, [], null, "API verbunden · Organisation", DateTimeOffset.Now.AddHours(-5), Detail: "Monat 4,20 USD\nAnbieterstand 5h verzögert"),
+                    "gemini" => new(account.Key, [], null, "Projekt verbunden", DateTimeOffset.Now.AddHours(-1), Detail: "Projektmonat · 314 Anfragen"),
+                    "groq" or "zai" => new(account.Key, [], null, "Lokaler API-Zähler · nur durchgeleitete Anfragen", DateTimeOffset.Now, Detail: "UTC-Monat · 12 Anfragen\nKosten nicht gemeldet; keine Schätzung"),
                     _ => new(account.Key, [], null, "Portal · keine automatische Messung", null, Detail: Providers.Get(vendor).Help)
                 };
             }

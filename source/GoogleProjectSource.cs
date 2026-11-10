@@ -37,11 +37,9 @@ internal sealed class GoogleProjectSource : IAccountSource
                 catch (Exception error) when (error is HttpRequestException or InvalidDataException) { }
             }
             var countText = requests.Count is long count ? count.ToString("N0", ApiAccountSource.German) + " Anfragen" : "keine Anfragen gemeldet";
-            var tokenText = output.Count is long tokens ? tokens.ToString("N0", ApiAccountSource.German) + " Output-Token" : "keine Output-Token gemeldet";
             var observed = requests.Observed is null ? output.Observed : output.Observed is null ? requests.Observed : requests.Observed < output.Observed ? requests.Observed : output.Observed;
             return new(identity.Key, [], null, observed is null ? "Projekt verbunden · keine Messpunkte" : "Projekt verbunden · Google Monitoring", observed,
-                Detail: "Monat · " + countText + " · " + tokenText + "\nProjekt " + project + " · Gemini API, keine Gemini-App-Aboquote. Anfragen können Fehlerantworten enthalten."
-                + "\nNur dokumentierte Output-Tokenmetrik; keine erfundene Input-/Gesamtzahl. Monitoring kann verzögert sein."
+                Detail: "Monat · " + countText + "\nProjekt " + project + " · Gemini API, keine Gemini-App-Aboquote. Anfragen können Fehlerantworten enthalten; Monitoring kann verzögert sein."
                 + "\n" + (table.Length == 0 ? "Kosten nicht konfiguriert: optional bestehende Cloud-Billing-Exporttabelle angeben." : _cost + " · gesamtes Projekt, keine reine Gemini-Rechnung; Kostenabruf maximal alle 30 Minuten.")
                 + "\nZeitraum: " + start.ToString("u") + " bis " + end.ToString("u") + " (abgeschlossene UTC-Stunden)",
                 Tokens: output.Count is long outputTokens ? new(outputTokens, start, end, "Google-Projekt · nur gemeldete Output-Token der Gemini API; Input fehlt. Abgeschlossene UTC-Stunden, Monitoring-Verzögerung möglich.", Output: outputTokens, Partial: true) : null);
