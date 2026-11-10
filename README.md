@@ -1,5 +1,7 @@
 # UseScope
 
+![UseScope – Limits, Guthaben und Reset-Zeiten für Windows und macOS](docs/images/usescope-cover-2.6.2.png)
+
 Ein kompaktes Desktop-Widget für KI-Abos, API-Verbrauch, Reset-Zeiten und gemeldetes Guthaben. Direkte Kontoabfragen und ein optionaler lokaler API-Zähler ergänzen sich.
 
 **2.6.2 ist ein lokal vorbereiteter Prüfstand.** Die Liste umfasst 53 Anbieterfamilien; das bedeutet keine 53 bestätigten Konto-Gesamtmessungen. 46 Familien besitzen einen lokalen API-Zähler-Preset, davon 39 mit fester Basisadresse und 7 mit eigener Konto-/Ressourcenadresse. Meta Muse wird zusätzlich über die CLI angebunden. Sechs Familien haben noch keinen verifizierten automatischen Anschluss. [Vollständige Matrix und Quellen](docs/PROVIDER_MATRIX.md).
